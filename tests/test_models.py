@@ -64,3 +64,43 @@ def test_state_default_model_falls_back_to_first_model(tmp_path: Path) -> None:
     state.refresh()
 
     assert state.get_default_model_id() == "a_model"
+
+
+def test_discover_ensemble_from_metadata(tmp_path: Path) -> None:
+    (tmp_path / "agata_ebranchformer_v1.onnx").touch()
+    (tmp_path / "agata_transformer_v1.onnx").touch()
+    (tmp_path / "models.yaml").write_text(
+        """
+models:
+  agata:
+    phrase: "Agata"
+    language: "pl"
+    architecture: "ensemble:e_branchformer+transformer"
+    fusion: "primary_and_verifier"
+    members:
+      - model: "agata_ebranchformer"
+        role: "primary"
+        threshold: 0.97
+      - model: "agata_transformer"
+        role: "verifier"
+        threshold: 0.90
+  agata_ebranchformer:
+    hidden: true
+    architecture: "e_branchformer"
+  agata_transformer:
+    hidden: true
+    architecture: "transformer"
+""",
+        encoding="utf-8",
+    )
+
+    state = State(model_dirs=[tmp_path], default_model="agata")
+    state.refresh()
+
+    assert sorted(state.models) == ["agata"]
+    assert sorted(state.backing_models) == [
+        "agata_ebranchformer",
+        "agata_transformer",
+    ]
+    assert state.models["agata"].is_ensemble
+    assert state.models["agata"].members[0].model == "agata_ebranchformer"

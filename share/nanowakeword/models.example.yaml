@@ -1,0 +1,24 @@
+models:
+  agata:
+    phrase: "Agata"
+    language: "pl"
+    architecture: "ensemble:e_branchformer+transformer"
+    fusion: "primary_and_verifier"
+    version: "v1"
+    members:
+      - model: "agata_ebranchformer"
+        role: "primary"
+        threshold: 0.97
+      - model: "agata_transformer"
+        role: "verifier"
+        threshold: 0.90
+
+  agata_ebranchformer:
+    hidden: true
+    architecture: "e_branchformer"
+    version: "v1"
+
+  agata_transformer:
+    hidden: true
+    architecture: "transformer"
+    version: "v1"

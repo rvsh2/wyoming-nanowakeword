@@ -28,6 +28,18 @@ At runtime this server loads any compatible NanoWakeWord `.onnx` model:
 `tcn`, `quartznet`, `crnn`, or custom. `bcresnet` is the recommended default
 architecture for new models, but it is not a runtime switch.
 
+For quality-first GPU-trained models, especially when training on hardware like
+2x RTX 3090 and runtime CPU size is not the main constraint, benchmark multiple
+architectures instead of choosing a small recurrent model first:
+
+- best quality candidate: `e_branchformer`
+- second candidate: `conformer`
+- safest NanoWakeWord candidate: `transformer`
+- baseline: `quartznet` or `bcresnet`
+
+For the wake word `Agata`, the recommended production shape is an ensemble:
+`E-Branchformer` as the primary model and `Transformer` as the verifier.
+
 ## Home Assistant Add-on
 
 1. Add this repository as an add-on repository in Home Assistant.
@@ -50,12 +62,35 @@ Optional `models.yaml`:
 
 ```yaml
 models:
-  hey_home:
-    phrase: "Hey Home"
-    language: "en"
-    architecture: "bcresnet"
+  agata:
+    phrase: "Agata"
+    language: "pl"
+    architecture: "ensemble:e_branchformer+transformer"
+    fusion: "primary_and_verifier"
+    version: "v1"
+    members:
+      - model: "agata_ebranchformer"
+        role: "primary"
+        threshold: 0.97
+      - model: "agata_transformer"
+        role: "verifier"
+        threshold: 0.90
+
+  agata_ebranchformer:
+    hidden: true
+    architecture: "e_branchformer"
+    version: "v1"
+
+  agata_transformer:
+    hidden: true
+    architecture: "transformer"
     version: "v1"
 ```
+
+With that metadata, Home Assistant sees one wake word named `agata`, while the
+server loads both `agata_ebranchformer_v1.onnx` and
+`agata_transformer_v1.onnx`. A detection fires only when the primary model
+passes its threshold and the verifier confirms it.
 
 Add-on options:
 
@@ -132,7 +167,11 @@ Najważniejsze:
 - do NanoWakeWord trafiają surowe próbki `np.int16`;
 - wrapper nie tworzy własnych feature'ów;
 - architektura modelu jest częścią pliku ONNX, a nie opcją runtime;
-- `bcresnet` jest rekomendowaną domyślną architekturą dla nowych modeli.
+- przy treningu quality-first dla `Agata` rekomendowany jest benchmark:
+  `e_branchformer`, `conformer`, `transformer` oraz baseline `quartznet` albo
+  `bcresnet`;
+- produkcyjnie dla `Agata` warto użyć ensemble: E-Branchformer jako primary i
+  Transformer jako verifier.
 
 Instalacja w HA:
 
