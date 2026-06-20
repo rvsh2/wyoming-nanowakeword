@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Ruff
+        run: python -m ruff check .
+      - name: Mypy
+        run: python -m mypy wyoming_nanowakeword
+      - name: Pytest
+        run: python -m pytest
+      - name: Compose config
+        run: docker compose -f compose.yml config
+      - name: Docker build
+        run: docker build -t wyoming-nanowakeword:test .
+
+  addon-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        base:
+          - ghcr.io/home-assistant/amd64-base-debian:bookworm
+          - ghcr.io/home-assistant/aarch64-base-debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add-on Docker build
+        run: |
+          docker build \
+            --build-arg BUILD_FROM="${{ matrix.base }}" \
+            -f nanowakeword/Dockerfile \
+            -t addon-wyoming-nanowakeword:test \
+            .

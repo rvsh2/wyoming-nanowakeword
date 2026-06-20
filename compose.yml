@@ -1,0 +1,24 @@
+services:
+  wyoming-nanowakeword:
+    container_name: wyoming-nanowakeword
+    image: ghcr.io/rvsh2/wyoming-nanowakeword:latest
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:10400:10400"
+    networks:
+      - bridge-network
+    volumes:
+      - /opt/wyoming-nanowakeword/data:/data
+      - /opt/wyoming-nanowakeword/share:/share
+    command:
+      - wyoming-nanowakeword
+      - --uri
+      - tcp://0.0.0.0:10400
+      - --model-dir
+      - /share/nanowakeword
+      - --zeroconf
+      - nanoWakeWord
+
+networks:
+  bridge-network:
+    external: true

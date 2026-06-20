@@ -1,0 +1,40 @@
+---
+version: 0.1.0
+slug: nanowakeword
+name: nanoWakeWord
+description: NanoWakeWord inference using the Wyoming protocol
+url: https://github.com/rvsh2/wyoming-nanowakeword
+arch:
+  - amd64
+  - aarch64
+init: false
+discovery:
+  - wyoming
+backup_exclude:
+  - "*.onnx"
+map:
+  - share:ro
+options:
+  model_dir: /share/nanowakeword
+  default_model: ""
+  threshold: 0.95
+  trigger_level: 1
+  refractory_seconds: 2.0
+  vad_threshold: 0.0
+  cascade: false
+  gate_threshold: 0.3
+  debug_logging: false
+schema:
+  model_dir: str
+  default_model: str
+  threshold: float
+  trigger_level: int
+  refractory_seconds: float
+  vad_threshold: float
+  cascade: bool
+  gate_threshold: float
+  debug_logging: bool
+ports:
+  "10400/tcp": null
+homeassistant: 2023.9.0
+image: ghcr.io/rvsh2/{arch}-addon-wyoming-nanowakeword

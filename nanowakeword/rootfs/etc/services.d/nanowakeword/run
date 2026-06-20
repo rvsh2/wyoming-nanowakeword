@@ -1,0 +1,38 @@
+#!/usr/bin/with-contenv bashio
+set -euo pipefail
+
+MODEL_DIR="$(bashio::config 'model_dir')"
+DEFAULT_MODEL="$(bashio::config 'default_model')"
+THRESHOLD="$(bashio::config 'threshold')"
+TRIGGER_LEVEL="$(bashio::config 'trigger_level')"
+REFRACTORY_SECONDS="$(bashio::config 'refractory_seconds')"
+VAD_THRESHOLD="$(bashio::config 'vad_threshold')"
+CASCADE="$(bashio::config 'cascade')"
+GATE_THRESHOLD="$(bashio::config 'gate_threshold')"
+DEBUG_LOGGING="$(bashio::config 'debug_logging')"
+
+args=(
+  "wyoming-nanowakeword"
+  "--uri" "tcp://0.0.0.0:10400"
+  "--model-dir" "${MODEL_DIR}"
+  "--threshold" "${THRESHOLD}"
+  "--trigger-level" "${TRIGGER_LEVEL}"
+  "--refractory-seconds" "${REFRACTORY_SECONDS}"
+  "--vad-threshold" "${VAD_THRESHOLD}"
+  "--gate-threshold" "${GATE_THRESHOLD}"
+  "--zeroconf" "nanoWakeWord"
+)
+
+if [[ -n "${DEFAULT_MODEL}" ]]; then
+  args+=("--default-model" "${DEFAULT_MODEL}")
+fi
+
+if [[ "${CASCADE}" == "true" ]]; then
+  args+=("--cascade")
+fi
+
+if [[ "${DEBUG_LOGGING}" == "true" ]]; then
+  args+=("--debug")
+fi
+
+exec "${args[@]}"

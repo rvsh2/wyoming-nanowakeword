@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wyoming-nanowakeword"
+version = "0.1.0"
+description = "Wyoming protocol server for NanoWakeWord inference"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "rvsh2" }
+]
+keywords = ["home-assistant", "wyoming", "wakeword", "nanowakeword", "onnx"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
+dependencies = [
+    "nanowakeword @ git+https://github.com/arcosoph/nanowakeword.git",
+    "numpy>=2.0,<3",
+    "PyYAML>=6.0,<7",
+    "wyoming[zeroconf]>=1.8,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy",
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+]
+
+[project.urls]
+"Source Code" = "https://github.com/rvsh2/wyoming-nanowakeword"
+
+[project.scripts]
+wyoming-nanowakeword = "wyoming_nanowakeword.__main__:run"
+
+[tool.setuptools]
+platforms = ["any"]
+zip-safe = false
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["wyoming_nanowakeword"]
+exclude = ["tests", "tests.*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
