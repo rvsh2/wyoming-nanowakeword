@@ -148,6 +148,72 @@ async def test_trigger_level_requires_multiple_hits(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_trigger_level_resets_on_miss(tmp_path: Path) -> None:
+    interpreter = FakeInterpreter(score=0.99)
+    handler, collector = _handler(tmp_path, interpreter, trigger_level=2)
+
+    await handler.handle_event(Detect(names=["hey_home"]).event())
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+
+    async def feed(score: float) -> None:
+        interpreter.score = score
+        await handler.handle_event(
+            AudioChunk(
+                rate=16000,
+                width=2,
+                channels=1,
+                audio=(b"\x01\x00" * 1280),
+            ).event()
+        )
+
+    # One hit, then a miss resets the streak, so two hits are still required.
+    await feed(0.99)
+    await feed(0.0)
+    await feed(0.99)
+    assert not any(Detection.is_type(event.type) for event in collector.events)
+
+    # Two consecutive hits now fire a detection.
+    await feed(0.99)
+    detections = [event for event in collector.events if Detection.is_type(event.type)]
+    assert len(detections) == 1
+
+
+@pytest.mark.asyncio
+async def test_cascade_passes_lite_model_as_gate(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").touch()
+    (tmp_path / "hey_home_lite.onnx").touch()
+    state = State(model_dirs=[tmp_path], default_model="hey_home")
+    state.refresh()
+    collector = EventCollector()
+
+    captured: list[dict[str, Any]] = []
+
+    def factory(**kwargs: Any) -> FakeInterpreter:
+        captured.append(kwargs)
+        return FakeInterpreter()
+
+    handler = NanoWakeWordEventHandler(
+        0.95,
+        1,
+        2.0,
+        0.0,
+        True,  # cascade
+        0.3,
+        state,
+        factory,
+        "test",
+        collector,
+    )
+    handler.write_event = collector.write_event  # type: ignore[method-assign]
+
+    await handler.handle_event(Detect(names=["hey_home"]).event())
+
+    assert captured
+    assert captured[0]["cascade"] is True
+    assert captured[0]["gate_model"] == str(tmp_path / "hey_home_lite.onnx")
+
+
+@pytest.mark.asyncio
 async def test_audio_stop_emits_not_detected_without_detection(tmp_path: Path) -> None:
     handler, collector = _handler(tmp_path, FakeInterpreter(score=0.0))
 

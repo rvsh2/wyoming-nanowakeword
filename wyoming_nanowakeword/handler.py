@@ -134,7 +134,13 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
             score = self._predict_detector(detector, audio)
 
-            if skip_detector or score <= self.threshold:
+            if skip_detector:
+                continue
+
+            if score <= self.threshold:
+                # Require trigger_level *consecutive* activations, like
+                # wyoming-openwakeword: a miss resets the streak.
+                detector.triggers_left = self.trigger_level
                 continue
 
             detector.triggers_left -= 1
@@ -187,6 +193,10 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 "cascade": self.cascade,
                 "gate_threshold": self.gate_threshold,
             }
+            if self.cascade and backing_entry.gate_path is not None:
+                # Pass the discovered <model>_lite.onnx explicitly so cascade
+                # does not depend on the interpreter's own directory scan.
+                load_kwargs["gate_model"] = str(backing_entry.gate_path)
             if self.vad_threshold > 0:
                 load_kwargs["vad_threshold"] = self.vad_threshold
 
