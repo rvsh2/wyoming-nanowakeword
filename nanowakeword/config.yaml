@@ -16,7 +16,7 @@ map:
   - share:ro
 options:
   model_dir: /share/nanowakeword
-  default_model: ""
+  default_model: "agata"
   threshold: 0.95
   trigger_level: 1
   refractory_seconds: 2.0

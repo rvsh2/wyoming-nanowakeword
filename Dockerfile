@@ -16,6 +16,11 @@ COPY wyoming_nanowakeword ./wyoming_nanowakeword
 
 RUN pip install --no-cache-dir .
 
+# Bake the feature/VAD models into the image so the server starts offline and
+# without a first-run download (NanoWakeWord otherwise fetches these lazily).
+RUN python -c "from nanowakeword.interpreter.models._registry import models; \
+    models.melspectrogram_onnx; models.embedding_model_onnx; models.silero_vad_onnx"
+
 EXPOSE 10400
 
 HEALTHCHECK --start-period=30s --interval=30s --timeout=5s --retries=3 \

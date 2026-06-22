@@ -1,6 +1,9 @@
 services:
   wyoming-nanowakeword:
     container_name: wyoming-nanowakeword
+    build:
+      context: .
+      dockerfile: Dockerfile
     image: ghcr.io/rvsh2/wyoming-nanowakeword:latest
     restart: unless-stopped
     ports:
@@ -8,14 +11,16 @@ services:
     networks:
       - bridge-network
     volumes:
-      - /opt/wyoming-nanowakeword/data:/data
-      - /opt/wyoming-nanowakeword/share:/share
+      # Prepared Agata models (E-Branchformer + alternatives) live in ./data.
+      - ./data:/data:ro
     command:
       - wyoming-nanowakeword
       - --uri
       - tcp://0.0.0.0:10400
       - --model-dir
-      - /share/nanowakeword
+      - /data
+      - --default-model
+      - agata
       - --zeroconf
       - nanoWakeWord
 

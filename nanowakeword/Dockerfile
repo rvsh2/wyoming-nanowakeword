@@ -20,6 +20,11 @@ RUN apt-get update \
 COPY . /usr/src/wyoming-nanowakeword
 RUN pip3 install --no-cache-dir /usr/src/wyoming-nanowakeword
 
+# Bake the feature/VAD models into the image so the add-on starts offline and
+# without a first-run download (NanoWakeWord otherwise fetches these lazily).
+RUN python3 -c "from nanowakeword.interpreter.models._registry import models; \
+    models.melspectrogram_onnx; models.embedding_model_onnx; models.silero_vad_onnx"
+
 WORKDIR /
 COPY nanowakeword/rootfs /
 

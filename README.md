@@ -105,29 +105,27 @@ Add-on options:
 - `gate_threshold`: cascade gate threshold
 - `debug_logging`: verbose logs
 
-## Docker Compose on Another Computer
+## Docker Compose
 
-Create the directories and copy `.onnx` models:
-
-```bash
-sudo mkdir -p /opt/wyoming-nanowakeword/{data,share/nanowakeword}
-sudo cp /path/to/*.onnx /opt/wyoming-nanowakeword/share/nanowakeword/
-```
-
-Start the service:
+The bundled `compose.yml` is ready to run. It builds the image from this
+repository, mounts the prepared models in `./data` read-only, and serves the
+`agata` wake word by default. `agata` is a quality-first ensemble defined in
+`data/models.yaml`: E-Branchformer (the best architecture available) as the
+primary detector, confirmed by Conformer as a verifier, so a detection fires
+only when both architectures agree:
 
 ```bash
-docker compose -f compose.yml up -d
+docker compose -f compose.yml up -d --build
 ```
 
 The server listens on `0.0.0.0:10400`. In Home Assistant, add a Wyoming
-integration pointing at the Docker host IP and port `10400`.
+integration pointing at the Docker host IP and port `10400`; the `agata` wake
+word then appears in Voice Assist exactly like an openWakeWord model.
 
-For local development builds:
-
-```bash
-docker compose -f compose.yml -f compose.override.example.yml up --build
-```
+To serve different or additional wake words, drop more `.onnx` models into
+`data/`, adjust `data/models.yaml`, and change `--default-model` in
+`compose.yml`. To run from a directory outside the repo instead, point the
+`./data` bind mount at your own model directory.
 
 ## Standalone Python
 
