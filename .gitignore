@@ -9,5 +9,4 @@ dist/
 .env
 .venv/
 venv/
-data/
 share/

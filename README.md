@@ -107,14 +107,17 @@ Add-on options:
 
 ## Docker Compose
 
-The bundled `compose.yml` is ready to run. It builds the image from this
-repository, mounts the prepared models in `./data` read-only, and serves the
-`agata` wake word by default. `agata` is a quality-first ensemble defined in
-`data/models.yaml`: E-Branchformer (the best architecture available) as the
-primary detector, confirmed by Conformer as a verifier, so a detection fires
-only when both architectures agree:
+The bundled `compose.yml` is ready to run, models included. The Agata `.onnx`
+models ship in `data/`, so a fresh clone works with no extra setup: compose
+builds the image from this repository, bind-mounts `./data` read-only, and
+serves the `agata` wake word by default. `agata` is a quality-first ensemble
+defined in `data/models.yaml`: E-Branchformer (the best architecture available)
+as the primary detector, confirmed by Conformer as a verifier, so a detection
+fires only when both architectures agree:
 
 ```bash
+git clone https://github.com/rvsh2/wyoming-nanowakeword.git
+cd wyoming-nanowakeword
 docker compose -f compose.yml up -d --build
 ```
 

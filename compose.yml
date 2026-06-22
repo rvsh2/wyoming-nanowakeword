@@ -4,7 +4,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/rvsh2/wyoming-nanowakeword:latest
+    # Local build tag (not the published ghcr image) so `docker compose up`
+    # always uses freshly built code instead of reusing a pulled :latest.
+    image: wyoming-nanowakeword:local
     restart: unless-stopped
     ports:
       - "0.0.0.0:10400:10400"
