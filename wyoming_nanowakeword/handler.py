@@ -38,6 +38,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
     def __init__(
         self,
+        *args: Any,
         threshold: float,
         trigger_level: int,
         refractory_seconds: float,
@@ -46,9 +47,10 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         gate_threshold: float,
         state: State,
         interpreter_factory: Any | None = None,
-        *args: Any,
         **kwargs: Any,
     ) -> None:
+        # *args carries (reader, writer) from wyoming's handler factory; keep our
+        # own params keyword-only so they never collide with those positionals.
         super().__init__(*args, **kwargs)
 
         self.client_id = str(time.monotonic_ns())

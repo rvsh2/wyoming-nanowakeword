@@ -117,13 +117,13 @@ async def main() -> None:
         await server.run(
             partial(
                 NanoWakeWordEventHandler,
-                args.threshold,
-                args.trigger_level,
-                args.refractory_seconds,
-                args.vad_threshold,
-                args.cascade,
-                args.gate_threshold,
-                state,
+                threshold=args.threshold,
+                trigger_level=args.trigger_level,
+                refractory_seconds=args.refractory_seconds,
+                vad_threshold=args.vad_threshold,
+                cascade=args.cascade,
+                gate_threshold=args.gate_threshold,
+                state=state,
             )
         )
     except KeyboardInterrupt:
