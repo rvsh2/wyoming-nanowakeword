@@ -26,19 +26,12 @@ Architecture selection happens when the ONNX model is trained and exported.
 At runtime this server loads any compatible NanoWakeWord `.onnx` model:
 `bcresnet`, `transformer`, `conformer`, `dnn`, `lstm`, `gru`, `rnn`, `cnn`,
 `tcn`, `quartznet`, `crnn`, or custom. `bcresnet` is the recommended default
-architecture for new models, but it is not a runtime switch.
+architecture for new models.
 
-For quality-first GPU-trained models, especially when training on hardware like
-2x RTX 3090 and runtime CPU size is not the main constraint, benchmark multiple
-architectures instead of choosing a small recurrent model first:
-
-- best quality candidate: `e_branchformer`
-- second candidate: `conformer`
-- safest NanoWakeWord candidate: `transformer`
-- baseline: `quartznet` or `bcresnet`
-
-For the wake word `Agata`, the recommended production shape is an ensemble:
-`E-Branchformer` as the primary model and `Transformer` as the verifier.
+- best quality candidate: `e_branchformer` (slow)
+- second candidate: `conformer` (slow)
+- safest NanoWakeWord candidate: `transformer` (slow)
+- baseline: `quartznet` or `bcresnet` (fast)
 
 ## Home Assistant Add-on
 
@@ -117,80 +110,20 @@ sudo cp /path/to/*.onnx /opt/wyoming-nanowakeword/share/nanowakeword/
 Start the service:
 
 ```bash
-docker compose -f compose.yml up -d
+docker compose up -d
 ```
 
 The server listens on `0.0.0.0:10400`. In Home Assistant, add a Wyoming
 integration pointing at the Docker host IP and port `10400`.
 
-For local development builds:
-
-```bash
-docker compose -f compose.yml -f compose.override.example.yml up --build
-```
-
-## Standalone Python
-
-```bash
-python3 -m venv .venv
-. .venv/bin/activate
-pip install .
-wyoming-nanowakeword \
-  --uri tcp://0.0.0.0:10400 \
-  --model-dir /opt/wyoming-nanowakeword/share/nanowakeword \
-  --zeroconf nanoWakeWord
-```
-
 ## Troubleshooting
 
 - No wake words in Home Assistant: confirm `.onnx` files exist in the configured
   model directory and check the add-on logs for discovered model ids.
-- Cascade does not activate: make sure `<model>_lite.onnx` is next to
-  `<model>.onnx`.
 - False positives: increase `threshold`, increase `trigger_level`, or enable VAD
   with a conservative `vad_threshold`.
 - Missed detections: decrease `threshold`, disable VAD, or use a better trained
   model.
-
-## Polski
-
-`wyoming-nanowakeword` to serwer Wyoming dla Home Assistant, który uruchamia
-inferencję modeli NanoWakeWord `.onnx`.
-
-Projekt jest tylko do inferencji. Instaluje NanoWakeWord bezpośrednio z
-`https://github.com/arcosoph/nanowakeword.git` i nie instaluje
-`nanowakeword[train]`, PyTorch, notebooków, Colab ani narzędzi datasetowych.
-
-Najważniejsze:
-
-- audio wejściowe jest konwertowane do `16 kHz`, `16-bit`, mono;
-- do NanoWakeWord trafiają surowe próbki `np.int16`;
-- wrapper nie tworzy własnych feature'ów;
-- architektura modelu jest częścią pliku ONNX, a nie opcją runtime;
-- przy treningu quality-first dla `Agata` rekomendowany jest benchmark:
-  `e_branchformer`, `conformer`, `transformer` oraz baseline `quartznet` albo
-  `bcresnet`;
-- produkcyjnie dla `Agata` warto użyć ensemble: E-Branchformer jako primary i
-  Transformer jako verifier.
-
-Instalacja w HA:
-
-1. Dodaj repozytorium jako add-on repository.
-2. Zainstaluj add-on `nanoWakeWord`.
-3. Wgraj modele `.onnx` do `/share/nanowakeword`.
-4. Uruchom add-on.
-5. Wybierz usługę Wyoming w Voice Assist.
-
-Docker na osobnym komputerze:
-
-```bash
-sudo mkdir -p /opt/wyoming-nanowakeword/{data,share/nanowakeword}
-sudo cp /path/to/*.onnx /opt/wyoming-nanowakeword/share/nanowakeword/
-docker compose -f compose.yml up -d
-```
-
-W Home Assistant dodaj integrację Wyoming z adresem IP hosta Docker i portem
-`10400`.
 
 ## References
 
