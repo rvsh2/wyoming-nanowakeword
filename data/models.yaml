@@ -16,19 +16,18 @@ models:
   agata:
     phrase: "Agata"
     language: "pl"
-    architecture: "ensemble:conformer+e_branchformer"
+    architecture: "conformer (verified hybrid)"
     fusion: "primary_and_verifier"
     version: "v1"
     members:
-      # Conformer leads: measured on real recordings from the test satellite
-      # it scores ~0.99 regardless of level, while E-Branchformer is fragile
-      # (hot/quiet audio, short buffers) — it only sanity-checks now.
+      # Conformer only: on real satellite recordings it scores ~0.99 for
+      # every genuine utterance (even truncated ones) and ~0.003 for noise,
+      # while E-Branchformer kept rejecting genuine wake words (0.30/0.09/
+      # 0.004 on level-shifted or clipped audio). The hybrid still crosses
+      # two independent models: quartznet on the satellite + Conformer here.
       - model: "agata_conformer"
         role: "primary"
         threshold: 0.90
-      - model: "agata_ebranchformer"
-        role: "verifier"
-        threshold: 0.25
 
   # Hidden backing models (not shown as separate wake words in Home Assistant).
   agata_ebranchformer:
