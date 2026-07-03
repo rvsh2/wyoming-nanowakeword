@@ -116,6 +116,8 @@ protocol itself cannot carry files:
 
 - `GET /api/info` — server version and served wake words
 - `GET /api/models` — models, ensembles, gates, and files
+- `GET /api/scores` — live inference scores per model (last, recent peak,
+  detection count) for threshold tuning
 - `POST /api/models` — multipart upload of an `.onnx` or `models.yaml`
 - `DELETE /api/models/<filename>` — delete a model file
 - `POST /api/refresh` — re-scan the model directory
@@ -137,16 +139,19 @@ in `.env` for compose) and send `Authorization: Bearer <secret>`.
 ## Home Assistant Integration (HACS)
 
 The `custom_components/nanowakeword` integration is a UI for that API. Install
-this repository in HACS as a custom repository (category *Integration*), then
-add the **NanoWakeWord** integration pointing at the server's host and HTTP
-port. It provides:
+this repository in HACS as a custom repository (category *Integration*). When
+the server runs with zeroconf, Home Assistant discovers the integration
+automatically; otherwise add **NanoWakeWord** manually with the server's host
+and HTTP port. It provides:
 
 - model upload from the browser (integration options → *Upload a model file*),
-  plus delete and backup-restore flows
-- a `Wake word models` sensor listing served wake words, and buttons for
-  backup and model reload
-- services: `nanowakeword.backup` (saves a zip under `/config/nanowakeword`),
-  `nanowakeword.restore`, `nanowakeword.upload_model`,
+  plus delete and restore flows (from an uploaded zip or from a saved backup)
+- a `Wake word models` sensor listing served wake words, and per-model
+  diagnostic `peak score` sensors (with ensemble member scores as attributes)
+  for live threshold tuning
+- buttons for backup and model reload
+- services: `nanowakeword.backup` (saves a zip under `/config/nanowakeword`,
+  keeps the 10 newest), `nanowakeword.restore`, `nanowakeword.upload_model`,
   `nanowakeword.delete_model`, `nanowakeword.reload_models`
 
 After a model change the integration reloads the Wyoming config entries for
@@ -209,6 +214,38 @@ inferencję modeli NanoWakeWord `.onnx`.
 Projekt jest tylko do inferencji. Instaluje NanoWakeWord bezpośrednio z
 `https://github.com/arcosoph/nanowakeword.git` i nie instaluje
 `nanowakeword[train]`, PyTorch, notebooków, Colab ani narzędzi datasetowych.
+
+### Instalacja
+
+- **Dodatek Home Assistant**: dodaj to repozytorium jako repozytorium
+  dodatków, zainstaluj `nanoWakeWord`, wgraj modele do `/share/nanowakeword`
+  i uruchom. Wake word wybierzesz w Voice Assist przez integrację Wyoming.
+- **Docker Compose**: `docker compose up -d --build` po sklonowaniu repo —
+  modele Agaty (ensemble E-Branchformer + Conformer) są w `data/` i serwer
+  działa od razu na porcie `10400`.
+- **HACS**: dodaj to repo jako custom repository (kategoria *Integration*)
+  i zainstaluj integrację **NanoWakeWord** — daje wgrywanie modeli z
+  przeglądarki, kopie zapasowe/przywracanie, sensory z liczbą modeli i
+  szczytowymi score'ami (do strojenia progów) oraz serwisy
+  `nanowakeword.*`. Przy włączonym zeroconf serwer jest wykrywany
+  automatycznie.
+
+### API zarządzania modelami
+
+Serwer wystawia REST API na porcie `10401` (`--http-port`): lista modeli,
+upload `.onnx`/`models.yaml`, usuwanie, podgląd score'ów (`/api/scores`),
+backup jako zip i restore. Zmiany są walidowane i wycofywane, jeśli psułyby
+zestaw modeli. Dodatek zawsze uruchamia API z tokenem (generowany
+automatycznie i wypisywany w logu dodatku, gdy `http_token` jest pusty);
+w compose API słucha tylko na `127.0.0.1`, a token ustawisz przez
+`NANOWAKEWORD_HTTP_TOKEN` w `.env`.
+
+### Strojenie progów
+
+Sensory diagnostyczne `peak score` (per model, z score'ami członków
+ensemble w atrybutach) pokazują, jak blisko progu były ostatnie próby.
+Jeśli prawdziwa "Agata" nie jest wykrywana — obniż progi w `models.yaml`;
+jeśli są fałszywe wyzwolenia — podnieś je albo zwiększ `trigger_level`.
 
 Najważniejsze:
 

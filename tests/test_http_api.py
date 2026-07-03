@@ -257,6 +257,22 @@ async def test_restore_rejects_bad_archives(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_scores_endpoint_reports_inference_stats(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+
+    async with _client(tmp_path) as (client, state):
+        state.update_score("hey_home", 0.42)
+        state.record_detection("hey_home")
+
+        payload = await (await client.get("/api/scores")).json()
+
+        stats = payload["scores"]["hey_home"]
+        assert stats["last"] == 0.42
+        assert stats["peak"] == 0.42
+        assert stats["detections"] == 1
+
+
+@pytest.mark.asyncio
 async def test_token_is_enforced_when_configured(tmp_path: Path) -> None:
     (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
 

@@ -1,0 +1,38 @@
+#include <tunables/global>
+
+profile nanowakeword flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  capability net_bind_service,
+  capability setgid,
+  capability setuid,
+
+  network inet tcp,
+  network inet udp,
+  network inet6 tcp,
+  network inet6 udp,
+
+  file,
+  signal (send) set=(kill,term,int,hup,cont),
+
+  # S6-Overlay
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /usr/lib/bashio/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/services.d/** rwix,
+  /etc/cont-init.d/** rwix,
+  /etc/cont-finish.d/** rwix,
+  /run/{,**} rwk,
+  /tmp/** rwk,
+  /dev/tty rw,
+
+  # Add-on private data (options, generated HTTP API token)
+  /data/** rw,
+
+  # Wake word models
+  /share/** rw,
+}

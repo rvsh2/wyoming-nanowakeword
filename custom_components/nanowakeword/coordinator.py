@@ -34,14 +34,19 @@ class NanoWakeWordCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER,
             config_entry=entry,
             name=f"{DOMAIN} {entry.title}",
-            update_interval=timedelta(seconds=60),
+            # Short enough that the per-model score sensors are usable for
+            # live threshold tuning.
+            update_interval=timedelta(seconds=15),
         )
         self.client = client
 
     async def _async_update_data(self) -> dict[str, Any]:
         try:
-            return await self.client.models()
+            data = await self.client.models()
+            scores = await self.client.scores()
         except NanoWakeWordAuthError as err:
             raise ConfigEntryAuthFailed from err
         except NanoWakeWordApiError as err:
             raise UpdateFailed(str(err)) from err
+
+        return {**data, "scores": scores.get("scores", {})}

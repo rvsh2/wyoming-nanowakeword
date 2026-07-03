@@ -5,6 +5,7 @@ DOMAIN = "nanowakeword"
 CONF_TOKEN = "token"
 CONF_MODEL_FILE = "model_file"
 CONF_BACKUP_FILE = "backup_file"
+CONF_BACKUP = "backup"
 CONF_FILENAME = "filename"
 
 DEFAULT_PORT = 10401

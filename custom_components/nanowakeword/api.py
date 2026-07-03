@@ -43,6 +43,9 @@ class NanoWakeWordClient:
     async def models(self) -> dict[str, Any]:
         return await self._request_json("GET", "/models")
 
+    async def scores(self) -> dict[str, Any]:
+        return await self._request_json("GET", "/scores")
+
     async def upload_model(self, filename: str, content: bytes) -> dict[str, Any]:
         form = aiohttp.FormData()
         form.add_field("file", content, filename=filename)

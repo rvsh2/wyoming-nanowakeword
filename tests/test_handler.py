@@ -179,6 +179,25 @@ async def test_trigger_level_resets_on_miss(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_detectors_reload_after_model_refresh(tmp_path: Path) -> None:
+    interpreter = FakeInterpreter(score=0.0)
+    handler, _collector = _handler(tmp_path, interpreter)
+
+    await handler.handle_event(Detect(names=["hey_home"]).event())
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    old_generation = handler.detectors["hey_home"].generation
+
+    # A model upload/restore through the HTTP API bumps the generation; the
+    # next pipeline run must reload detectors from the new registry.
+    handler.state.refresh()
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+
+    detector = handler.detectors["hey_home"]
+    assert detector.generation == handler.state.generation
+    assert detector.generation != old_generation
+
+
+@pytest.mark.asyncio
 async def test_audio_without_detect_uses_default_model(tmp_path: Path) -> None:
     interpreter = FakeInterpreter(score=0.99)
     handler, collector = _handler(tmp_path, interpreter)

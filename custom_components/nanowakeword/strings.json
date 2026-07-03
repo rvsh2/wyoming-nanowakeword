@@ -15,6 +15,13 @@
         "data": {
           "token": "API token"
         }
+      },
+      "zeroconf_confirm": {
+        "title": "Discovered NanoWakeWord server",
+        "description": "Set up the NanoWakeWord server found at {host}. Provide the API token if the server requires one (the add-on prints it in its log).",
+        "data": {
+          "token": "API token (optional)"
+        }
       }
     },
     "error": {
@@ -24,7 +31,8 @@
     "abort": {
       "already_configured": "This server is already configured.",
       "reauth_successful": "Token updated."
-    }
+    },
+    "flow_title": "NanoWakeWord ({host})"
   },
   "options": {
     "step": {
@@ -33,7 +41,8 @@
         "menu_options": {
           "upload_model": "Upload a model file",
           "delete_model": "Delete a model file",
-          "restore_backup": "Restore a backup"
+          "restore_backup": "Restore a backup",
+          "restore_saved": "Restore a saved backup"
         }
       },
       "upload_model": {
@@ -57,6 +66,13 @@
         "data": {
           "backup_file": "Backup file (.zip)"
         }
+      },
+      "restore_saved": {
+        "title": "Restore a saved backup",
+        "description": "Restore one of the backups stored in /config/nanowakeword. {error}",
+        "data": {
+          "backup": "Backup"
+        }
       }
     },
     "error": {
@@ -67,13 +83,17 @@
     },
     "abort": {
       "not_loaded": "The NanoWakeWord entry is not loaded.",
-      "no_model_files": "The server has no model files to delete."
+      "no_model_files": "The server has no model files to delete.",
+      "no_backups": "No saved backups found in /config/nanowakeword. Use the Backup models button or service first."
     }
   },
   "entity": {
     "sensor": {
       "models": {
         "name": "Wake word models"
+      },
+      "peak_score": {
+        "name": "{model} peak score"
       }
     },
     "button": {

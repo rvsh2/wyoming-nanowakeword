@@ -8,6 +8,7 @@ arch:
   - amd64
   - aarch64
 init: false
+watchdog: tcp://[HOST]:[PORT:10400]
 discovery:
   - wyoming
 backup_exclude:

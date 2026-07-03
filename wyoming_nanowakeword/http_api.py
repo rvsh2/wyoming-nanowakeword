@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import logging
 import re
+import time
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -90,6 +91,7 @@ class ModelApi:
             [
                 web.get("/api/info", self.info),
                 web.get("/api/models", self.list_models),
+                web.get("/api/scores", self.scores),
                 web.post("/api/models", self.upload_model),
                 web.delete("/api/models/{filename}", self.delete_model),
                 web.post("/api/refresh", self.refresh),
@@ -124,6 +126,21 @@ class ModelApi:
 
     async def list_models(self, request: web.Request) -> web.Response:
         return web.json_response(self._models_payload())
+
+    async def scores(self, request: web.Request) -> web.Response:
+        """Live inference scores per model — for tuning thresholds."""
+
+        now = time.monotonic()
+        payload = {
+            model_id: {
+                "last": round(stats["last"], 4),
+                "peak": round(stats["peak"], 4),
+                "peak_age_seconds": round(now - stats["peak_at"], 1),
+                "detections": stats["detections"],
+            }
+            for model_id, stats in self.state.scores.items()
+        }
+        return web.json_response({"scores": payload})
 
     async def upload_model(self, request: web.Request) -> web.Response:
         filename, content = await self._read_uploaded_file(request)

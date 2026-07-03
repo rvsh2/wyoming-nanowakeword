@@ -11,9 +11,14 @@ from homeassistant.util import dt as dt_util
 
 from .const import BACKUP_DIR
 
+# Backups rotate: only the newest ones are kept in /config/nanowakeword.
+KEEP_BACKUPS = 10
+
+_BACKUP_GLOB = "nanowakeword-backup-*.zip"
+
 
 async def async_create_backup(hass: HomeAssistant, entry: ConfigEntry) -> Path:
-    """Download a model backup and store it under /config/nanowakeword."""
+    """Download a model backup, store it under /config/nanowakeword, rotate."""
 
     content = await entry.runtime_data.client.backup()
 
@@ -24,9 +29,25 @@ async def async_create_backup(hass: HomeAssistant, entry: ConfigEntry) -> Path:
     def _write() -> None:
         backup_dir.mkdir(parents=True, exist_ok=True)
         path.write_bytes(content)
+        for old in sorted(backup_dir.glob(_BACKUP_GLOB), reverse=True)[KEEP_BACKUPS:]:
+            old.unlink(missing_ok=True)
 
     await hass.async_add_executor_job(_write)
     return path
+
+
+async def async_list_backups(hass: HomeAssistant) -> list[str]:
+    """Names of saved backups, newest first."""
+
+    backup_dir = Path(hass.config.path(BACKUP_DIR))
+
+    def _list() -> list[str]:
+        if not backup_dir.is_dir():
+            return []
+        names = (path.name for path in backup_dir.glob(_BACKUP_GLOB))
+        return sorted(names, reverse=True)
+
+    return await hass.async_add_executor_job(_list)
 
 
 async def async_notify_model_change(hass: HomeAssistant, entry: ConfigEntry) -> None:

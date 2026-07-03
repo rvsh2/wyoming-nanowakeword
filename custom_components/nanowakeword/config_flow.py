@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import voluptuous as vol
@@ -21,9 +22,12 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
 )
+from homeassistant.helpers.service_info.zeroconf import ZeroconfServiceInfo
 
 from .api import NanoWakeWordApiError, NanoWakeWordAuthError, NanoWakeWordClient
 from .const import (
+    BACKUP_DIR,
+    CONF_BACKUP,
     CONF_BACKUP_FILE,
     CONF_FILENAME,
     CONF_MODEL_FILE,
@@ -31,7 +35,7 @@ from .const import (
     DEFAULT_PORT,
     DOMAIN,
 )
-from .helpers import async_notify_model_change
+from .helpers import async_list_backups, async_notify_model_change
 
 STEP_USER_SCHEMA = vol.Schema(
     {
@@ -46,6 +50,44 @@ class NanoWakeWordConfigFlow(ConfigFlow, domain=DOMAIN):
     """Configure a connection to a wyoming-nanowakeword HTTP model API."""
 
     VERSION = 1
+
+    def __init__(self) -> None:
+        self._discovered: dict[str, Any] | None = None
+
+    async def async_step_zeroconf(
+        self, discovery_info: ZeroconfServiceInfo
+    ) -> ConfigFlowResult:
+        host = discovery_info.host
+        port = discovery_info.port or DEFAULT_PORT
+        await self.async_set_unique_id(f"{host}:{port}")
+        self._abort_if_unique_id_configured()
+
+        self._discovered = {CONF_HOST: host, CONF_PORT: port}
+        self.context["title_placeholders"] = {"host": host}
+        return await self.async_step_zeroconf_confirm()
+
+    async def async_step_zeroconf_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        assert self._discovered is not None
+
+        if user_input is not None:
+            data = {**self._discovered, CONF_TOKEN: user_input.get(CONF_TOKEN)}
+            error = await self._async_validate(data)
+            if error:
+                errors["base"] = error
+            else:
+                return self.async_create_entry(
+                    title=f"NanoWakeWord ({data[CONF_HOST]})", data=data
+                )
+
+        return self.async_show_form(
+            step_id="zeroconf_confirm",
+            data_schema=vol.Schema({vol.Optional(CONF_TOKEN): str}),
+            errors=errors,
+            description_placeholders={"host": self._discovered[CONF_HOST]},
+        )
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -129,7 +171,52 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
 
         return self.async_show_menu(
             step_id="init",
-            menu_options=["upload_model", "delete_model", "restore_backup"],
+            menu_options=[
+                "upload_model",
+                "delete_model",
+                "restore_saved",
+                "restore_backup",
+            ],
+        )
+
+    async def async_step_restore_saved(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Restore one of the backups saved under /config/nanowakeword."""
+
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
+
+        if user_input is not None:
+            path = (
+                Path(self.hass.config.path(BACKUP_DIR))
+                / Path(user_input[CONF_BACKUP]).name
+            )
+            content = await self.hass.async_add_executor_job(path.read_bytes)
+            try:
+                await self._client.restore(content)
+            except NanoWakeWordApiError as err:
+                errors["base"] = "restore_failed"
+                placeholders["error"] = str(err)
+            else:
+                await async_notify_model_change(self.hass, self.config_entry)
+                return self._async_finish()
+
+        backups = await async_list_backups(self.hass)
+        if not backups:
+            return self.async_abort(reason="no_backups")
+
+        return self.async_show_form(
+            step_id="restore_saved",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_BACKUP): SelectSelector(
+                        SelectSelectorConfig(options=backups)
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_upload_model(
