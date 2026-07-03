@@ -104,7 +104,8 @@ Add-on options:
   `<model>_lite.onnx`
 - `gate_threshold`: cascade gate threshold
 - `http_api`: enable the HTTP model management API on port `10401`
-- `http_token`: optional bearer token for the HTTP API
+- `http_token`: bearer token for the HTTP API; when empty, the add-on
+  generates a persistent token and prints it in the add-on log
 - `debug_logging`: verbose logs
 
 ## HTTP Model Management API
@@ -122,9 +123,16 @@ protocol itself cannot carry files:
 - `POST /api/restore` — replace the model directory with an uploaded zip
 
 Uploads and restores are validated: a change that would break the model set
-(for example removing an ensemble member) is rolled back and rejected with
-`400`. Protect the API with `--http-token <secret>` (then send
-`Authorization: Bearer <secret>`).
+(for example removing an ensemble member, or an invalid `models.yaml`) is
+rolled back and rejected with `400`. Only `*.onnx` files and a file named
+exactly `models.yaml` are accepted, and filenames are restricted to letters,
+digits, `.`, `_` and `-`.
+
+The API can modify files, so it never ships open to the network: the add-on
+always runs it with a token (auto-generated when `http_token` is empty — see
+the add-on log), and compose publishes it on `127.0.0.1` only. To expose it
+on the LAN, set a token (`--http-token <secret>`, or `NANOWAKEWORD_HTTP_TOKEN`
+in `.env` for compose) and send `Authorization: Bearer <secret>`.
 
 ## Home Assistant Integration (HACS)
 

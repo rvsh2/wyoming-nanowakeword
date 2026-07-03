@@ -10,7 +10,9 @@ services:
     restart: unless-stopped
     ports:
       - "0.0.0.0:10400:10400"
-      - "0.0.0.0:10401:10401"
+      # Model management API: localhost-only by default. To expose it on the
+      # LAN, change to 0.0.0.0 AND set NANOWAKEWORD_HTTP_TOKEN in .env.
+      - "127.0.0.1:10401:10401"
     volumes:
       # Prepared Agata models (E-Branchformer + alternatives) live in ./data.
       # Writable so the HTTP model API can upload/restore models.
@@ -27,3 +29,7 @@ services:
       - nanoWakeWord
       - --http-port
       - "10401"
+      # Empty token means no auth; set NANOWAKEWORD_HTTP_TOKEN in .env before
+      # exposing the API beyond localhost.
+      - --http-token
+      - ${NANOWAKEWORD_HTTP_TOKEN:-}

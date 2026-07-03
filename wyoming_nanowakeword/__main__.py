@@ -102,7 +102,12 @@ async def main() -> None:
 
     model_dirs = [Path(model_dir) for model_dir in args.model_dir]
     state = State(model_dirs=model_dirs, default_model=args.default_model)
-    state.refresh()
+    try:
+        state.refresh()
+    except Exception:
+        # Keep the server (and its HTTP API, if enabled) running so a broken
+        # models.yaml can be fixed remotely instead of crash-looping.
+        _LOGGER.exception("Failed to load models; starting with none")
     if not state.models:
         _LOGGER.warning(
             "No NanoWakeWord .onnx models found in: %s",

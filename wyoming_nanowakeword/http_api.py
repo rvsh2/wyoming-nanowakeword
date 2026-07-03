@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+import yaml
 from aiohttp import BodyPartReader, web
 
 from . import __version__
@@ -22,8 +24,30 @@ from .state import State
 
 _LOGGER = logging.getLogger(__name__)
 
-_ALLOWED_SUFFIXES = {".onnx", ".yaml", ".yml"}
+_METADATA_NAME = "models.yaml"
+_SAFE_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _MAX_UPLOAD_BYTES = 256 * 1024 * 1024
+_MAX_RESTORE_BYTES = 1024 * 1024 * 1024
+
+
+def _is_managed_name(name: str) -> bool:
+    return name == _METADATA_NAME or name.endswith(".onnx")
+
+
+def _validate_upload_name(name: str) -> None:
+    if not _SAFE_FILENAME.match(name):
+        raise web.HTTPBadRequest(
+            text=f"Invalid filename {name!r}: use only letters, digits, . _ -"
+        )
+    if name.endswith((".yaml", ".yml")) and name != _METADATA_NAME:
+        raise web.HTTPBadRequest(
+            text=f"Metadata must be named {_METADATA_NAME!r}, got {name!r}; "
+            "other YAML files are never read by the server"
+        )
+    if not _is_managed_name(name):
+        raise web.HTTPBadRequest(
+            text=f"Unsupported file type: {name!r} (expected .onnx or models.yaml)"
+        )
 
 
 class ModelApi:
@@ -103,10 +127,7 @@ class ModelApi:
 
     async def upload_model(self, request: web.Request) -> web.Response:
         filename, content = await self._read_uploaded_file(request)
-        if Path(filename).suffix not in _ALLOWED_SUFFIXES:
-            raise web.HTTPBadRequest(
-                text=f"Unsupported file type: {filename!r} (expected .onnx or .yaml)"
-            )
+        _validate_upload_name(filename)
 
         try:
             self._apply_changes(writes={filename: content})
@@ -119,7 +140,7 @@ class ModelApi:
     async def delete_model(self, request: web.Request) -> web.Response:
         filename = Path(request.match_info["filename"]).name
         path = self.model_dir / filename
-        if Path(filename).suffix not in _ALLOWED_SUFFIXES or not path.is_file():
+        if not _is_managed_name(filename) or not path.is_file():
             raise web.HTTPNotFound(text=f"No such model file: {filename!r}")
 
         try:
@@ -131,7 +152,11 @@ class ModelApi:
         return web.json_response(self._models_payload())
 
     async def refresh(self, request: web.Request) -> web.Response:
-        self.state.refresh()
+        try:
+            self.state.refresh()
+        except (ValueError, yaml.YAMLError) as err:
+            raise web.HTTPBadRequest(text=str(err)) from err
+
         return web.json_response(self._models_payload())
 
     async def backup(self, request: web.Request) -> web.Response:
@@ -156,16 +181,31 @@ class ModelApi:
         except zipfile.BadZipFile as err:
             raise web.HTTPBadRequest(text="Restore payload is not a zip file") from err
 
+        entries = [entry for entry in archive.infolist() if not entry.is_dir()]
+
+        # file_size is the declared decompressed size; the request size limit
+        # only bounds the compressed payload (zip bomb protection).
+        total_size = sum(entry.file_size for entry in entries)
+        if total_size > _MAX_RESTORE_BYTES:
+            raise web.HTTPBadRequest(
+                text=f"Backup decompresses to {total_size} bytes, "
+                f"limit is {_MAX_RESTORE_BYTES}"
+            )
+
         writes: dict[str, bytes] = {}
-        for entry in archive.infolist():
-            if entry.is_dir():
-                continue
+        for entry in entries:
             name = Path(entry.filename).name
-            if name != entry.filename or Path(name).suffix not in _ALLOWED_SUFFIXES:
+            if name != entry.filename:
                 raise web.HTTPBadRequest(
                     text=f"Unexpected file in backup: {entry.filename!r}"
                 )
-            writes[name] = archive.read(entry)
+            _validate_upload_name(name)
+            data = archive.read(entry)
+            if len(data) != entry.file_size:
+                raise web.HTTPBadRequest(
+                    text=f"Backup entry {name!r} lies about its size"
+                )
+            writes[name] = data
 
         if not writes:
             raise web.HTTPBadRequest(text="Backup archive contains no model files")
@@ -205,7 +245,7 @@ class ModelApi:
         return sorted(
             path
             for path in self.model_dir.glob("*")
-            if path.is_file() and path.suffix in _ALLOWED_SUFFIXES
+            if path.is_file() and _is_managed_name(path.name)
         )
 
     async def _read_uploaded_file(self, request: web.Request) -> tuple[str, bytes]:
@@ -232,8 +272,9 @@ class ModelApi:
         writes: dict[str, bytes] | None = None,
         deletes: set[str] | None = None,
     ) -> None:
-        """Write/delete model files, rolling everything back if the resulting
-        model set is invalid (e.g. an ensemble loses a member)."""
+        """Write/delete model files, rolling everything back if a file
+        operation fails or the resulting model set is invalid (e.g. an
+        ensemble loses a member). Raises ValueError with the reason."""
 
         writes = writes or {}
         deletes = deletes or set()
@@ -243,19 +284,30 @@ class ModelApi:
             path = self.model_dir / name
             originals[name] = path.read_bytes() if path.is_file() else None
 
-        for name, content in writes.items():
-            (self.model_dir / name).write_bytes(content)
-        for name in deletes:
-            (self.model_dir / name).unlink(missing_ok=True)
-
         try:
+            for name, content in writes.items():
+                (self.model_dir / name).write_bytes(content)
+            for name in deletes:
+                (self.model_dir / name).unlink(missing_ok=True)
             self.state.refresh()
-        except ValueError:
-            for name, original in originals.items():
-                path = self.model_dir / name
+        except (ValueError, yaml.YAMLError, OSError) as err:
+            self._rollback(originals)
+            raise ValueError(str(err)) from err
+
+    def _rollback(self, originals: dict[str, bytes | None]) -> None:
+        for name, original in originals.items():
+            path = self.model_dir / name
+            try:
                 if original is None:
                     path.unlink(missing_ok=True)
                 else:
                     path.write_bytes(original)
+            except OSError:
+                _LOGGER.exception("Rollback of %s failed", name)
+
+        try:
             self.state.refresh()
-            raise
+        except (ValueError, yaml.YAMLError, OSError):
+            # The directory was already invalid before this request (e.g. a
+            # hand-edited models.yaml); keep the previous in-memory state.
+            _LOGGER.exception("Model directory is invalid after rollback")

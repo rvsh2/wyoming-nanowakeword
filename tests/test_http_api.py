@@ -96,6 +96,77 @@ async def test_upload_rejects_unsupported_and_traversal_names(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
+async def test_upload_rejects_unsafe_and_misnamed_files(tmp_path: Path) -> None:
+    async with _client(tmp_path) as (client, _state):
+        # URL-special characters would be undeletable through clients.
+        response = await client.post(
+            "/api/models", data=_upload_form("hey#test.onnx", b"onnx")
+        )
+        assert response.status == 400
+
+        # Only models.yaml is ever read by discovery; other yaml names would
+        # be accepted and silently ignored.
+        for name in ("models.yml", "agata.yaml"):
+            response = await client.post(
+                "/api/models", data=_upload_form(name, b"models: {}")
+            )
+            assert response.status == 400
+            assert "models.yaml" in await response.text()
+            assert not (tmp_path / name).exists()
+
+
+@pytest.mark.asyncio
+async def test_yaml_syntax_error_is_rolled_back(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+
+    async with _client(tmp_path) as (client, state):
+        response = await client.post(
+            "/api/models",
+            data=_upload_form("models.yaml", b"models:\n  bad\n    indent: [\n"),
+        )
+
+        assert response.status == 400
+        assert not (tmp_path / "models.yaml").exists()
+        assert sorted(state.models) == ["hey_home"]
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_zip_bombs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from wyoming_nanowakeword import http_api
+
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+    monkeypatch.setattr(http_api, "_MAX_RESTORE_BYTES", 1000)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("hey_home.onnx", b"\x00" * 10_000)
+
+    async with _client(tmp_path) as (client, _state):
+        response = await client.post(
+            "/api/restore", data=_upload_form("backup.zip", buffer.getvalue())
+        )
+        assert response.status == 400
+        assert "limit" in await response.text()
+        assert (tmp_path / "hey_home.onnx").read_bytes() == b"onnx"
+
+
+@pytest.mark.asyncio
+async def test_refresh_reports_invalid_model_dir_as_400(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+
+    async with _client(tmp_path) as (client, _state):
+        (tmp_path / "models.yaml").write_text(
+            "models:\n  broken:\n    members:\n      - model: 'missing'\n",
+            encoding="utf-8",
+        )
+        response = await client.post("/api/refresh")
+        assert response.status == 400
+        assert "missing" in await response.text()
+
+
+@pytest.mark.asyncio
 async def test_invalid_models_yaml_is_rolled_back(tmp_path: Path) -> None:
     (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
     broken_yaml = b"models:\n  broken:\n    members:\n      - model: 'missing'\n"

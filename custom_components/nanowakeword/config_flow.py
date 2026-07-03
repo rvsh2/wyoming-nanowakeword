@@ -136,14 +136,16 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
-        placeholders: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
 
         if user_input is not None:
             uploaded_name, content = await self.hass.async_add_executor_job(
                 self._read_uploaded_file, user_input[CONF_MODEL_FILE]
             )
             filename = (user_input.get(CONF_FILENAME) or uploaded_name).strip()
-            if not filename.endswith((".onnx", ".yaml", ".yml")):
+            # The server only ever reads *.onnx models and a file literally
+            # named models.yaml; reject anything else up front.
+            if not (filename.endswith(".onnx") or filename == "models.yaml"):
                 errors["base"] = "invalid_filename"
             else:
                 try:
@@ -160,7 +162,7 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_MODEL_FILE): FileSelector(
-                        FileSelectorConfig(accept=".onnx,.yaml,.yml")
+                        FileSelectorConfig(accept=".onnx,.yaml")
                     ),
                     vol.Optional(CONF_FILENAME): str,
                 }
@@ -173,7 +175,7 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
-        placeholders: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
 
         if user_input is not None:
             try:
@@ -207,7 +209,7 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         errors: dict[str, str] = {}
-        placeholders: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
 
         if user_input is not None:
             _name, content = await self.hass.async_add_executor_job(

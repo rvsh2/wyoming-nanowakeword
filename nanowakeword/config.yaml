@@ -24,6 +24,8 @@ options:
   vad_threshold: 0.0
   cascade: false
   gate_threshold: 0.3
+  # When http_token is empty, the add-on generates a persistent token and
+  # prints it in the add-on log; the API is never exposed unauthenticated.
   http_api: true
   http_token: ""
   debug_logging: false

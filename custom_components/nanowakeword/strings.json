@@ -60,7 +60,7 @@
       }
     },
     "error": {
-      "invalid_filename": "The filename must end with .onnx, .yaml or .yml.",
+      "invalid_filename": "The filename must end with .onnx, or be exactly models.yaml (the only metadata file the server reads).",
       "upload_failed": "The server rejected the upload.",
       "delete_failed": "The server rejected the deletion.",
       "restore_failed": "The server rejected the restore."

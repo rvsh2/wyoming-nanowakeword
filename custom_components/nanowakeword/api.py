@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 
-_TIMEOUT = aiohttp.ClientTimeout(total=120)
+# No total limit: uploads/backups of large model sets on slow links can take
+# minutes. Stalled connections are cut by sock_read instead.
+_TIMEOUT = aiohttp.ClientTimeout(total=None, connect=30, sock_read=120)
 
 
 class NanoWakeWordApiError(Exception):
@@ -46,7 +49,7 @@ class NanoWakeWordClient:
         return await self._request_json("POST", "/models", data=form)
 
     async def delete_model(self, filename: str) -> dict[str, Any]:
-        return await self._request_json("DELETE", f"/models/{filename}")
+        return await self._request_json("DELETE", f"/models/{quote(filename, safe='')}")
 
     async def reload(self) -> dict[str, Any]:
         return await self._request_json("POST", "/refresh")

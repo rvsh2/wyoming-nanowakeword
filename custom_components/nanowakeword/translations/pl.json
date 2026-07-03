@@ -60,7 +60,7 @@
       }
     },
     "error": {
-      "invalid_filename": "Nazwa pliku musi kończyć się na .onnx, .yaml lub .yml.",
+      "invalid_filename": "Nazwa pliku musi kończyć się na .onnx albo być dokładnie models.yaml (jedyny plik metadanych czytany przez serwer).",
       "upload_failed": "Serwer odrzucił wgrywany plik.",
       "delete_failed": "Serwer odrzucił usunięcie pliku.",
       "restore_failed": "Serwer odrzucił przywracanie kopii."
