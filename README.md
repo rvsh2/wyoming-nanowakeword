@@ -103,7 +103,47 @@ Add-on options:
 - `cascade`: enable NanoWakeWord cascade mode and auto-discover
   `<model>_lite.onnx`
 - `gate_threshold`: cascade gate threshold
+- `http_api`: enable the HTTP model management API on port `10401`
+- `http_token`: optional bearer token for the HTTP API
 - `debug_logging`: verbose logs
+
+## HTTP Model Management API
+
+Started with `--http-port` (compose and the add-on enable it on `10401`), the
+server exposes a small REST API for managing the model directory — the Wyoming
+protocol itself cannot carry files:
+
+- `GET /api/info` — server version and served wake words
+- `GET /api/models` — models, ensembles, gates, and files
+- `POST /api/models` — multipart upload of an `.onnx` or `models.yaml`
+- `DELETE /api/models/<filename>` — delete a model file
+- `POST /api/refresh` — re-scan the model directory
+- `GET /api/backup` — zip of the model directory
+- `POST /api/restore` — replace the model directory with an uploaded zip
+
+Uploads and restores are validated: a change that would break the model set
+(for example removing an ensemble member) is rolled back and rejected with
+`400`. Protect the API with `--http-token <secret>` (then send
+`Authorization: Bearer <secret>`).
+
+## Home Assistant Integration (HACS)
+
+The `custom_components/nanowakeword` integration is a UI for that API. Install
+this repository in HACS as a custom repository (category *Integration*), then
+add the **NanoWakeWord** integration pointing at the server's host and HTTP
+port. It provides:
+
+- model upload from the browser (integration options → *Upload a model file*),
+  plus delete and backup-restore flows
+- a `Wake word models` sensor listing served wake words, and buttons for
+  backup and model reload
+- services: `nanowakeword.backup` (saves a zip under `/config/nanowakeword`),
+  `nanowakeword.restore`, `nanowakeword.upload_model`,
+  `nanowakeword.delete_model`, `nanowakeword.reload_models`
+
+After a model change the integration reloads the Wyoming config entries for
+the same host, so new wake words show up in Voice Assist without a manual
+reload.
 
 ## Docker Compose
 

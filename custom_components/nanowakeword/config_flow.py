@@ -1,0 +1,248 @@
+"""Config and options flow for the NanoWakeWord integration."""
+
+from __future__ import annotations
+
+from typing import Any
+
+import voluptuous as vol
+from homeassistant.components.file_upload import process_uploaded_file
+from homeassistant.config_entries import (
+    ConfigEntryState,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.const import CONF_HOST, CONF_PORT
+from homeassistant.core import callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    FileSelector,
+    FileSelectorConfig,
+    SelectSelector,
+    SelectSelectorConfig,
+)
+
+from .api import NanoWakeWordApiError, NanoWakeWordAuthError, NanoWakeWordClient
+from .const import (
+    CONF_BACKUP_FILE,
+    CONF_FILENAME,
+    CONF_MODEL_FILE,
+    CONF_TOKEN,
+    DEFAULT_PORT,
+    DOMAIN,
+)
+from .helpers import async_notify_model_change
+
+STEP_USER_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_HOST): str,
+        vol.Required(CONF_PORT, default=DEFAULT_PORT): int,
+        vol.Optional(CONF_TOKEN): str,
+    }
+)
+
+
+class NanoWakeWordConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Configure a connection to a wyoming-nanowakeword HTTP model API."""
+
+    VERSION = 1
+
+    async def async_step_user(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            error = await self._async_validate(user_input)
+            if error:
+                errors["base"] = error
+            else:
+                unique_id = f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}"
+                await self.async_set_unique_id(unique_id)
+                self._abort_if_unique_id_configured()
+                return self.async_create_entry(
+                    title=f"NanoWakeWord ({user_input[CONF_HOST]})",
+                    data=user_input,
+                )
+
+        return self.async_show_form(
+            step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> ConfigFlowResult:
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        assert entry is not None
+
+        if user_input is not None:
+            candidate = {**entry.data, CONF_TOKEN: user_input.get(CONF_TOKEN)}
+            error = await self._async_validate(candidate)
+            if error:
+                errors["base"] = error
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates={CONF_TOKEN: user_input.get(CONF_TOKEN)}
+                )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema({vol.Optional(CONF_TOKEN): str}),
+            errors=errors,
+        )
+
+    async def _async_validate(self, data: dict[str, Any]) -> str | None:
+        client = NanoWakeWordClient(
+            async_get_clientsession(self.hass),
+            data[CONF_HOST],
+            data[CONF_PORT],
+            data.get(CONF_TOKEN),
+        )
+        try:
+            await client.info()
+        except NanoWakeWordAuthError:
+            return "invalid_auth"
+        except NanoWakeWordApiError:
+            return "cannot_connect"
+        return None
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: Any) -> NanoWakeWordOptionsFlow:
+        return NanoWakeWordOptionsFlow()
+
+
+class NanoWakeWordOptionsFlow(OptionsFlow):
+    """Model management actions: upload, delete, restore."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if self.config_entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="not_loaded")
+
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["upload_model", "delete_model", "restore_backup"],
+        )
+
+    async def async_step_upload_model(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+
+        if user_input is not None:
+            uploaded_name, content = await self.hass.async_add_executor_job(
+                self._read_uploaded_file, user_input[CONF_MODEL_FILE]
+            )
+            filename = (user_input.get(CONF_FILENAME) or uploaded_name).strip()
+            if not filename.endswith((".onnx", ".yaml", ".yml")):
+                errors["base"] = "invalid_filename"
+            else:
+                try:
+                    await self._client.upload_model(filename, content)
+                except NanoWakeWordApiError as err:
+                    errors["base"] = "upload_failed"
+                    placeholders["error"] = str(err)
+                else:
+                    await async_notify_model_change(self.hass, self.config_entry)
+                    return self._async_finish()
+
+        return self.async_show_form(
+            step_id="upload_model",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_MODEL_FILE): FileSelector(
+                        FileSelectorConfig(accept=".onnx,.yaml,.yml")
+                    ),
+                    vol.Optional(CONF_FILENAME): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_delete_model(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+
+        if user_input is not None:
+            try:
+                await self._client.delete_model(user_input[CONF_FILENAME])
+            except NanoWakeWordApiError as err:
+                errors["base"] = "delete_failed"
+                placeholders["error"] = str(err)
+            else:
+                await async_notify_model_change(self.hass, self.config_entry)
+                return self._async_finish()
+
+        data = self.config_entry.runtime_data.coordinator.data or {}
+        files = data.get("files", [])
+        if not files:
+            return self.async_abort(reason="no_model_files")
+
+        return self.async_show_form(
+            step_id="delete_model",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_FILENAME): SelectSelector(
+                        SelectSelectorConfig(options=files)
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    async def async_step_restore_backup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {}
+
+        if user_input is not None:
+            _name, content = await self.hass.async_add_executor_job(
+                self._read_uploaded_file, user_input[CONF_BACKUP_FILE]
+            )
+            try:
+                await self._client.restore(content)
+            except NanoWakeWordApiError as err:
+                errors["base"] = "restore_failed"
+                placeholders["error"] = str(err)
+            else:
+                await async_notify_model_change(self.hass, self.config_entry)
+                return self._async_finish()
+
+        return self.async_show_form(
+            step_id="restore_backup",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_BACKUP_FILE): FileSelector(
+                        FileSelectorConfig(accept=".zip")
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+    @property
+    def _client(self) -> NanoWakeWordClient:
+        return self.config_entry.runtime_data.client
+
+    def _read_uploaded_file(self, file_id: str) -> tuple[str, bytes]:
+        with process_uploaded_file(self.hass, file_id) as file_path:
+            return file_path.name, file_path.read_bytes()
+
+    def _async_finish(self) -> ConfigFlowResult:
+        # Options are not used for settings; keep whatever is stored.
+        return self.async_create_entry(data=dict(self.config_entry.options))

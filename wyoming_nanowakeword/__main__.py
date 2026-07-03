@@ -68,6 +68,20 @@ async def main() -> None:
         const="nanoWakeWord",
         help="Enable discovery over zeroconf with optional name",
     )
+    parser.add_argument(
+        "--http-port",
+        type=int,
+        help="Port for the HTTP model management API (disabled unless set)",
+    )
+    parser.add_argument(
+        "--http-host",
+        default="0.0.0.0",
+        help="Bind host for the HTTP model management API (default: 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--http-token",
+        help="Bearer token required by the HTTP model management API",
+    )
     parser.add_argument("--debug", action="store_true", help="Log DEBUG messages")
     parser.add_argument(
         "--log-format",
@@ -96,6 +110,20 @@ async def main() -> None:
         )
     else:
         _LOGGER.info("Discovered models: %s", ", ".join(sorted(state.models)))
+
+    if args.http_port:
+        if not model_dirs:
+            raise ValueError("--http-port requires at least one --model-dir")
+
+        from .http_api import ModelApi
+
+        model_api = ModelApi(
+            state,
+            host=args.http_host,
+            port=args.http_port,
+            token=args.http_token,
+        )
+        await model_api.start()
 
     server = AsyncServer.from_uri(args.uri)
     if args.zeroconf:

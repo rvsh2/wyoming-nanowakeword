@@ -9,7 +9,12 @@ REFRACTORY_SECONDS="$(bashio::config 'refractory_seconds')"
 VAD_THRESHOLD="$(bashio::config 'vad_threshold')"
 CASCADE="$(bashio::config 'cascade')"
 GATE_THRESHOLD="$(bashio::config 'gate_threshold')"
+HTTP_API="$(bashio::config 'http_api')"
 DEBUG_LOGGING="$(bashio::config 'debug_logging')"
+
+# The model dir must exist before the server scans it and before the HTTP
+# API accepts uploads into it.
+mkdir -p "${MODEL_DIR}"
 
 args=(
   "wyoming-nanowakeword"
@@ -29,6 +34,13 @@ fi
 
 if [[ "${CASCADE}" == "true" ]]; then
   args+=("--cascade")
+fi
+
+if [[ "${HTTP_API}" == "true" ]]; then
+  args+=("--http-port" "10401")
+  if bashio::config.has_value 'http_token'; then
+    args+=("--http-token" "$(bashio::config 'http_token')")
+  fi
 fi
 
 if [[ "${DEBUG_LOGGING}" == "true" ]]; then

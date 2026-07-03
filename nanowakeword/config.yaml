@@ -12,8 +12,9 @@ discovery:
   - wyoming
 backup_exclude:
   - "*.onnx"
+# rw so the HTTP model API can upload/restore models in /share/nanowakeword.
 map:
-  - share:ro
+  - share:rw
 options:
   model_dir: /share/nanowakeword
   default_model: "agata"
@@ -23,6 +24,8 @@ options:
   vad_threshold: 0.0
   cascade: false
   gate_threshold: 0.3
+  http_api: true
+  http_token: ""
   debug_logging: false
 schema:
   model_dir: str
@@ -33,8 +36,11 @@ schema:
   vad_threshold: float
   cascade: bool
   gate_threshold: float
+  http_api: bool
+  http_token: str?
   debug_logging: bool
 ports:
   "10400/tcp": null
+  "10401/tcp": 10401
 homeassistant: 2023.9.0
 image: ghcr.io/rvsh2/{arch}-addon-wyoming-nanowakeword

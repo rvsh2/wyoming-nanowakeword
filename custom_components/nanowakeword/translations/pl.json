@@ -1,0 +1,152 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Połącz z wyoming-nanowakeword",
+        "description": "Host i port HTTP API modeli serwera wyoming-nanowakeword (uruchom z --http-port lub włącz http_api w dodatku).",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "token": "Token API (opcjonalny)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Zaktualizuj token API",
+        "data": {
+          "token": "Token API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Nie można połączyć się z HTTP API NanoWakeWord. Sprawdź host, port i czy API jest włączone.",
+      "invalid_auth": "Nieprawidłowy token API."
+    },
+    "abort": {
+      "already_configured": "Ten serwer jest już skonfigurowany.",
+      "reauth_successful": "Token zaktualizowany."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Zarządzaj modelami wake word",
+        "menu_options": {
+          "upload_model": "Wgraj plik modelu",
+          "delete_model": "Usuń plik modelu",
+          "restore_backup": "Przywróć kopię zapasową"
+        }
+      },
+      "upload_model": {
+        "title": "Wgraj plik modelu",
+        "description": "Wgraj model NanoWakeWord .onnx lub plik models.yaml. Nazwa pliku staje się identyfikatorem wake worda. {error}",
+        "data": {
+          "model_file": "Plik modelu",
+          "filename": "Zapisz jako (opcjonalnie, domyślnie nazwa wgranego pliku)"
+        }
+      },
+      "delete_model": {
+        "title": "Usuń plik modelu",
+        "description": "Usuń plik z katalogu modeli serwera. {error}",
+        "data": {
+          "filename": "Plik"
+        }
+      },
+      "restore_backup": {
+        "title": "Przywróć kopię zapasową",
+        "description": "Wgraj archiwum zip kopii zapasowej. Katalog modeli serwera zostanie zastąpiony zawartością kopii. {error}",
+        "data": {
+          "backup_file": "Plik kopii zapasowej (.zip)"
+        }
+      }
+    },
+    "error": {
+      "invalid_filename": "Nazwa pliku musi kończyć się na .onnx, .yaml lub .yml.",
+      "upload_failed": "Serwer odrzucił wgrywany plik.",
+      "delete_failed": "Serwer odrzucił usunięcie pliku.",
+      "restore_failed": "Serwer odrzucił przywracanie kopii."
+    },
+    "abort": {
+      "not_loaded": "Wpis NanoWakeWord nie jest załadowany.",
+      "no_model_files": "Serwer nie ma plików modeli do usunięcia."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "models": {
+        "name": "Modele wake word"
+      }
+    },
+    "button": {
+      "backup": {
+        "name": "Kopia zapasowa modeli"
+      },
+      "reload_models": {
+        "name": "Przeładuj modele"
+      }
+    }
+  },
+  "services": {
+    "backup": {
+      "name": "Kopia zapasowa modeli",
+      "description": "Pobiera zip z katalogiem modeli serwera do /config/nanowakeword i zwraca jego ścieżkę.",
+      "fields": {
+        "entry_id": {
+          "name": "Serwer",
+          "description": "Wpis konfiguracji do skopiowania. Opcjonalne, gdy skonfigurowany jest jeden serwer."
+        }
+      }
+    },
+    "restore": {
+      "name": "Przywróć modele",
+      "description": "Zastępuje katalog modeli serwera zawartością archiwum zip.",
+      "fields": {
+        "entry_id": {
+          "name": "Serwer",
+          "description": "Wpis konfiguracji do przywrócenia. Opcjonalne, gdy skonfigurowany jest jeden serwer."
+        },
+        "path": {
+          "name": "Ścieżka kopii",
+          "description": "Ścieżka do archiwum zip, bezwzględna lub względem /config."
+        }
+      }
+    },
+    "upload_model": {
+      "name": "Wgraj model",
+      "description": "Wgrywa lokalny plik .onnx lub models.yaml na serwer.",
+      "fields": {
+        "entry_id": {
+          "name": "Serwer",
+          "description": "Wpis konfiguracji. Opcjonalne, gdy skonfigurowany jest jeden serwer."
+        },
+        "path": {
+          "name": "Ścieżka pliku",
+          "description": "Ścieżka do pliku modelu, bezwzględna lub względem /config."
+        }
+      }
+    },
+    "delete_model": {
+      "name": "Usuń model",
+      "description": "Usuwa plik z katalogu modeli serwera.",
+      "fields": {
+        "entry_id": {
+          "name": "Serwer",
+          "description": "Wpis konfiguracji. Opcjonalne, gdy skonfigurowany jest jeden serwer."
+        },
+        "filename": {
+          "name": "Nazwa pliku",
+          "description": "Nazwa pliku w katalogu modeli."
+        }
+      }
+    },
+    "reload_models": {
+      "name": "Przeładuj modele",
+      "description": "Ponownie skanuje katalog modeli serwera.",
+      "fields": {
+        "entry_id": {
+          "name": "Serwer",
+          "description": "Wpis konfiguracji. Opcjonalne, gdy skonfigurowany jest jeden serwer."
+        }
+      }
+    }
+  }
+}

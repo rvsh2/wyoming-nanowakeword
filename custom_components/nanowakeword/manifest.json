@@ -1,0 +1,13 @@
+{
+  "domain": "nanowakeword",
+  "name": "NanoWakeWord",
+  "codeowners": ["@rvsh2"],
+  "config_flow": true,
+  "dependencies": ["file_upload"],
+  "documentation": "https://github.com/rvsh2/wyoming-nanowakeword",
+  "integration_type": "service",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/rvsh2/wyoming-nanowakeword/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

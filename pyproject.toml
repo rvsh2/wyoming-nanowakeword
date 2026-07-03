@@ -25,6 +25,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio :: Speech",
 ]
 dependencies = [
+    "aiohttp>=3.9,<4",
     "nanowakeword @ git+https://github.com/arcosoph/nanowakeword.git",
     "numpy>=2.0,<3",
     "PyYAML>=6.0,<7",

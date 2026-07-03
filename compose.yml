@@ -10,9 +10,11 @@ services:
     restart: unless-stopped
     ports:
       - "0.0.0.0:10400:10400"
+      - "0.0.0.0:10401:10401"
     volumes:
       # Prepared Agata models (E-Branchformer + alternatives) live in ./data.
-      - ./data:/data:ro
+      # Writable so the HTTP model API can upload/restore models.
+      - ./data:/data
     command:
       - wyoming-nanowakeword
       - --uri
@@ -23,3 +25,5 @@ services:
       - agata
       - --zeroconf
       - nanoWakeWord
+      - --http-port
+      - "10401"

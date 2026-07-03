@@ -1,0 +1,152 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to wyoming-nanowakeword",
+        "description": "Host and HTTP model API port of the wyoming-nanowakeword server (start it with --http-port, or enable http_api in the add-on).",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "token": "API token (optional)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Update API token",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to the NanoWakeWord HTTP API. Check host, port and that the API is enabled.",
+      "invalid_auth": "Invalid API token."
+    },
+    "abort": {
+      "already_configured": "This server is already configured.",
+      "reauth_successful": "Token updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Manage wake word models",
+        "menu_options": {
+          "upload_model": "Upload a model file",
+          "delete_model": "Delete a model file",
+          "restore_backup": "Restore a backup"
+        }
+      },
+      "upload_model": {
+        "title": "Upload a model file",
+        "description": "Upload a NanoWakeWord .onnx model or a models.yaml. The filename becomes the wake word id. {error}",
+        "data": {
+          "model_file": "Model file",
+          "filename": "Store as filename (optional, defaults to the uploaded name)"
+        }
+      },
+      "delete_model": {
+        "title": "Delete a model file",
+        "description": "Remove a file from the server's model directory. {error}",
+        "data": {
+          "filename": "File"
+        }
+      },
+      "restore_backup": {
+        "title": "Restore a backup",
+        "description": "Upload a backup zip. The server's model directory is replaced with the backup contents. {error}",
+        "data": {
+          "backup_file": "Backup file (.zip)"
+        }
+      }
+    },
+    "error": {
+      "invalid_filename": "The filename must end with .onnx, .yaml or .yml.",
+      "upload_failed": "The server rejected the upload.",
+      "delete_failed": "The server rejected the deletion.",
+      "restore_failed": "The server rejected the restore."
+    },
+    "abort": {
+      "not_loaded": "The NanoWakeWord entry is not loaded.",
+      "no_model_files": "The server has no model files to delete."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "models": {
+        "name": "Wake word models"
+      }
+    },
+    "button": {
+      "backup": {
+        "name": "Backup models"
+      },
+      "reload_models": {
+        "name": "Reload models"
+      }
+    }
+  },
+  "services": {
+    "backup": {
+      "name": "Backup models",
+      "description": "Downloads a zip of the server's model directory into /config/nanowakeword and returns its path.",
+      "fields": {
+        "entry_id": {
+          "name": "Server",
+          "description": "Config entry to back up. Optional when only one server is configured."
+        }
+      }
+    },
+    "restore": {
+      "name": "Restore models",
+      "description": "Replaces the server's model directory with a backup zip.",
+      "fields": {
+        "entry_id": {
+          "name": "Server",
+          "description": "Config entry to restore. Optional when only one server is configured."
+        },
+        "path": {
+          "name": "Backup path",
+          "description": "Path to the backup zip, absolute or relative to /config."
+        }
+      }
+    },
+    "upload_model": {
+      "name": "Upload model",
+      "description": "Uploads a local .onnx or models.yaml file to the server.",
+      "fields": {
+        "entry_id": {
+          "name": "Server",
+          "description": "Config entry to upload to. Optional when only one server is configured."
+        },
+        "path": {
+          "name": "File path",
+          "description": "Path to the model file, absolute or relative to /config."
+        }
+      }
+    },
+    "delete_model": {
+      "name": "Delete model",
+      "description": "Deletes a file from the server's model directory.",
+      "fields": {
+        "entry_id": {
+          "name": "Server",
+          "description": "Config entry to delete from. Optional when only one server is configured."
+        },
+        "filename": {
+          "name": "Filename",
+          "description": "Name of the file in the model directory."
+        }
+      }
+    },
+    "reload_models": {
+      "name": "Reload models",
+      "description": "Re-scans the server's model directory.",
+      "fields": {
+        "entry_id": {
+          "name": "Server",
+          "description": "Config entry to reload. Optional when only one server is configured."
+        }
+      }
+    }
+  }
+}
