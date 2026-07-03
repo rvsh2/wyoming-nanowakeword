@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.1.0 - 2026-07-04
 
 Initial release.
 
@@ -26,6 +26,13 @@ Initial release.
   central instance for confirmation before the Wyoming `Detection` fires;
   fail-open when the verifier is down; rejected candidates are counted and
   their audio captured (`*-rejected-*.wav`)
+- Scoring (`/api/test` and hybrid verification) normalizes audio to a fixed
+  peak first, so verdicts depend on content rather than microphone gain —
+  level-sensitive architectures (E-Branchformer) otherwise score near zero
+  on hot or quiet recordings
+- The bundled Agata setup was retuned on real satellite recordings: the
+  hybrid crosses quartznet (satellite) with Conformer (central verifier),
+  which classified 13/13 captured real-world samples correctly
 - Detection audio capture (`--capture-dir`, ring buffer, rotation) as
   training data for the next model version
 - Zeroconf advertisement of both the Wyoming server and the HTTP API
