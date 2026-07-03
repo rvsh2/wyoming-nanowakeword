@@ -2,14 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    RestoreSensor,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN, SIGNAL_BACKUP
 from .entity import NanoWakeWordEntity
 
 
@@ -20,24 +30,48 @@ async def async_setup_entry(
 ) -> None:
     coordinator = entry.runtime_data.coordinator
     async_add_entities(
-        [NanoWakeWordModelsSensor(entry), NanoWakeWordClientsSensor(entry)]
+        [
+            NanoWakeWordModelsSensor(entry),
+            NanoWakeWordClientsSensor(entry),
+            NanoWakeWordLastBackupSensor(entry),
+        ]
     )
 
     known_models: set[str] = set()
 
     @callback
-    def _add_score_sensors() -> None:
-        new_entities = [
-            NanoWakeWordScoreSensor(entry, model["id"])
-            for model in (coordinator.data or {}).get("models", [])
-            if model["id"] not in known_models
-        ]
-        known_models.update(sensor.model_id for sensor in new_entities)
-        if new_entities:
-            async_add_entities(new_entities)
+    def _sync_score_sensors() -> None:
+        # Only trust a fresh, successful poll: a server hiccup must not
+        # delete every score sensor.
+        if not coordinator.last_update_success:
+            return
 
-    _add_score_sensors()
-    entry.async_on_unload(coordinator.async_add_listener(_add_score_sensors))
+        current = {
+            model["id"] for model in (coordinator.data or {}).get("models", [])
+        }
+
+        new_models = current - known_models
+        if new_models:
+            async_add_entities(
+                NanoWakeWordScoreSensor(entry, model_id) for model_id in new_models
+            )
+            known_models.update(new_models)
+
+        # Deleted wake words: remove their sensors instead of leaving them
+        # unavailable forever.
+        stale = known_models - current
+        if stale:
+            registry = er.async_get(hass)
+            for model_id in stale:
+                entity_id = registry.async_get_entity_id(
+                    "sensor", DOMAIN, f"{entry.entry_id}_score_{model_id}"
+                )
+                if entity_id:
+                    registry.async_remove(entity_id)
+            known_models.difference_update(stale)
+
+    _sync_score_sensors()
+    entry.async_on_unload(coordinator.async_add_listener(_sync_score_sensors))
 
 
 class NanoWakeWordModelsSensor(NanoWakeWordEntity, SensorEntity):
@@ -82,6 +116,45 @@ class NanoWakeWordClientsSensor(NanoWakeWordEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         return self.coordinator.data.get("clients", 0)
+
+
+class NanoWakeWordLastBackupSensor(NanoWakeWordEntity, RestoreSensor):
+    """When the last model backup was saved, with its path as attribute."""
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        super().__init__(entry, "last_backup")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        # Survive HA restarts: the backup file is still on disk.
+        if self.entry.runtime_data.last_backup_at is None:
+            if (last_state := await self.async_get_last_state()) is not None:
+                self.entry.runtime_data.last_backup_at = dt_util.parse_datetime(
+                    last_state.state
+                )
+                self.entry.runtime_data.last_backup_path = last_state.attributes.get(
+                    "path"
+                )
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_BACKUP.format(self.entry.entry_id),
+                self.async_write_ha_state,
+            )
+        )
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self.entry.runtime_data.last_backup_at
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"path": self.entry.runtime_data.last_backup_path}
 
 
 class NanoWakeWordScoreSensor(NanoWakeWordEntity, SensorEntity):

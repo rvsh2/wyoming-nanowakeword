@@ -161,10 +161,44 @@ async def test_backup_service_writes_and_rotates(
     response = await hass.services.async_call(
         DOMAIN, "backup", {}, blocking=True, return_response=True
     )
+    await hass.async_block_till_done()
 
     path = Path(response["path"])
     assert path.read_bytes() == b"zip-bytes"
     assert len(list(backup_dir.glob("nanowakeword-backup-*.zip"))) == 10
+
+    # The user gets visible feedback: a notification and the sensor.
+    from homeassistant.components import persistent_notification as pn
+
+    notifications = pn._async_get_or_create_notifications(hass)
+    assert any("nanowakeword_backup" in key for key in notifications)
+
+    registry = er.async_get(hass)
+    entry = hass.config_entries.async_entries(DOMAIN)[0]
+    sensor = registry.async_get_entity_id(
+        "sensor", DOMAIN, f"{entry.entry_id}_last_backup"
+    )
+    assert sensor is not None
+    state = hass.states.get(sensor)
+    assert state is not None
+    assert state.state not in ("unknown", "unavailable")
+    assert state.attributes["path"] == str(path)
+
+
+async def test_stale_score_sensors_are_removed(
+    hass: HomeAssistant, mock_client: MagicMock
+) -> None:
+    entry = await _setup_entry(hass)
+    registry = er.async_get(hass)
+    unique_id = f"{entry.entry_id}_score_agata"
+    assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) is not None
+
+    # The wake word disappears from the server (deleted via API).
+    mock_client.models.return_value = {"models": [], "files": [], "clients": 0}
+    await entry.runtime_data.coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert registry.async_get_entity_id("sensor", DOMAIN, unique_id) is None
 
 
 async def test_restore_service_sends_backup_to_server(

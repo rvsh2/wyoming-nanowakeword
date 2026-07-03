@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_PORT, Platform
@@ -38,6 +39,9 @@ class NanoWakeWordData:
 
     client: NanoWakeWordClient
     coordinator: NanoWakeWordCoordinator
+    # Set by async_create_backup; shown by the "Last backup" sensor.
+    last_backup_path: str | None = None
+    last_backup_at: datetime | None = None
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:

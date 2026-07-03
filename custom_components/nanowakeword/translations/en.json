@@ -108,6 +108,9 @@
       },
       "clients": {
         "name": "Connected clients"
+      },
+      "last_backup": {
+        "name": "Last backup"
       }
     },
     "button": {

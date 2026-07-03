@@ -18,6 +18,7 @@ ATTR_ENTRY_ID = "entry_id"
 ATTR_PATH = "path"
 
 SIGNAL_DETECTION = "nanowakeword_detection_{}"
+SIGNAL_BACKUP = "nanowakeword_backup_{}"
 
 SERVICE_BACKUP = "backup"
 SERVICE_RESTORE = "restore"

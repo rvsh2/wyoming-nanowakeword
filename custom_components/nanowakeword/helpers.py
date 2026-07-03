@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
-from .const import BACKUP_DIR
+from .const import BACKUP_DIR, SIGNAL_BACKUP
 
 # Backups rotate: only the newest ones are kept in /config/nanowakeword.
 KEEP_BACKUPS = 10
@@ -33,6 +35,17 @@ async def async_create_backup(hass: HomeAssistant, entry: ConfigEntry) -> Path:
             old.unlink(missing_ok=True)
 
     await hass.async_add_executor_job(_write)
+
+    entry.runtime_data.last_backup_path = str(path)
+    entry.runtime_data.last_backup_at = dt_util.now()
+    async_dispatcher_send(hass, SIGNAL_BACKUP.format(entry.entry_id))
+    persistent_notification.async_create(
+        hass,
+        f"Wake word models from {entry.title} saved to `{path}` "
+        f"(the {KEEP_BACKUPS} newest backups are kept).",
+        title="NanoWakeWord backup saved",
+        notification_id=f"nanowakeword_backup_{entry.entry_id}",
+    )
     return path
 
 

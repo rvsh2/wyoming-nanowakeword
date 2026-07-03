@@ -108,6 +108,9 @@
       },
       "clients": {
         "name": "Podłączeni klienci"
+      },
+      "last_backup": {
+        "name": "Ostatnia kopia zapasowa"
       }
     },
     "button": {

@@ -152,7 +152,8 @@ and HTTP port. It provides:
 - a `Wake word models` sensor listing served wake words, a `Connected
   clients` sensor, and per-model diagnostic `peak score` sensors (with
   ensemble member scores and inference times as attributes)
-- buttons for backup and model reload
+- buttons for backup and model reload; each backup shows a notification
+  with the saved path and updates a `Last backup` sensor
 - services: `nanowakeword.backup` (saves a zip under `/config/nanowakeword`,
   keeps the 10 newest), `nanowakeword.restore`, `nanowakeword.upload_model`,
   `nanowakeword.delete_model`, `nanowakeword.reload_models`
