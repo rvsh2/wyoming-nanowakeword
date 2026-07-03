@@ -39,6 +39,20 @@ _SAFE_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 _MAX_RESTORE_BYTES = 1024 * 1024 * 1024
 _TEST_CHUNK_SAMPLES = 1280  # 80 ms at 16 kHz, NanoWakeWord's feature stride
+# Some architectures (E-Branchformer in particular) are level-sensitive and
+# score near zero on very hot or very quiet recordings. Scoring always runs
+# on audio normalized to this peak so the verdict depends on content, not
+# on microphone gain.
+_SCORING_TARGET_PEAK = 9800  # ~30% full scale
+
+
+def _normalize_for_scoring(audio: np.ndarray) -> np.ndarray:
+    peak = int(np.abs(audio).max()) if len(audio) else 0
+    if peak == 0:
+        return audio
+
+    scaled = audio.astype(np.float64) * (_SCORING_TARGET_PEAK / peak)
+    return np.clip(scaled, -32768, 32767).astype(np.int16)
 
 
 def _load_wav_as_int16(content: bytes) -> np.ndarray:
@@ -335,7 +349,7 @@ class ModelApi:
             raise web.HTTPBadRequest(text=f"Expected a .wav file, got {filename!r}")
 
         try:
-            audio = _load_wav_as_int16(content)
+            audio = _normalize_for_scoring(_load_wav_as_int16(content))
         except (wave.Error, EOFError) as err:
             raise web.HTTPBadRequest(text=f"Cannot read WAV file: {err}") from err
 

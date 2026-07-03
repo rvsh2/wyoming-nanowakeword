@@ -16,16 +16,19 @@ models:
   agata:
     phrase: "Agata"
     language: "pl"
-    architecture: "ensemble:e_branchformer+conformer"
+    architecture: "ensemble:conformer+e_branchformer"
     fusion: "primary_and_verifier"
     version: "v1"
     members:
-      - model: "agata_ebranchformer"
+      # Conformer leads: measured on real recordings from the test satellite
+      # it scores ~0.99 regardless of level, while E-Branchformer is fragile
+      # (hot/quiet audio, short buffers) — it only sanity-checks now.
+      - model: "agata_conformer"
         role: "primary"
         threshold: 0.90
-      - model: "agata_conformer"
+      - model: "agata_ebranchformer"
         role: "verifier"
-        threshold: 0.80
+        threshold: 0.25
 
   # Hidden backing models (not shown as separate wake words in Home Assistant).
   agata_ebranchformer:

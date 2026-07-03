@@ -405,3 +405,22 @@ async def test_token_is_enforced_when_configured(tmp_path: Path) -> None:
             "/api/models", headers={"Authorization": "Bearer secret"}
         )
         assert response.status == 200
+
+
+def test_normalize_for_scoring_is_level_invariant() -> None:
+    import numpy as np
+
+    from wyoming_nanowakeword.http_api import (
+        _SCORING_TARGET_PEAK,
+        _normalize_for_scoring,
+    )
+
+    hot = (np.sin(np.linspace(0, 60, 16000)) * 23000).astype(np.int16)
+    quiet = (hot * 0.01).astype(np.int16)
+
+    for signal in (hot, quiet):
+        normalized = _normalize_for_scoring(signal)
+        assert abs(int(np.abs(normalized).max()) - _SCORING_TARGET_PEAK) <= 300
+
+    silence = np.zeros(1600, dtype=np.int16)
+    assert _normalize_for_scoring(silence).max() == 0
