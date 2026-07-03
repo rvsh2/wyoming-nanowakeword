@@ -138,25 +138,89 @@ in `.env` for compose) and send `Authorization: Bearer <secret>`.
 ## Hybrid Satellite + Server
 
 For satellites with weak CPUs (Raspberry Pi, Banana Pi and similar), run a
-light model locally and let a strong central server confirm every candidate:
+light model locally and let a strong central server confirm every candidate.
+Three pieces are involved — note that Home Assistant only ever talks to the
+**satellite process**, never to the wake word servers directly:
 
-1. **Satellite**: this server with a fast model (e.g. quartznet) at a
-   deliberately low threshold, plus `--cascade` so the tiny `_lite` gate keeps
-   idle CPU near zero. See `compose.satellite.yml`. Point wyoming-satellite's
-   wake word service at it.
-2. **Central server**: the regular setup serving a quality-first ensemble
-   (e.g. E-Branchformer + Conformer).
-3. **Verification**: configure the satellite with `--verify-url` (or from
-   Home Assistant: integration → Configure → *Configure central verifier*).
-   On every candidate the satellite sends its buffered audio to the central
-   `POST /api/test`; the Wyoming `Detection` wakes the Voice Assist pipeline
-   only when the ensemble agrees. Rejected candidates are counted
-   (`rejections` in `/api/scores`) and published on the event stream.
+```
+┌─ SATELLITE DEVICE (mic + speaker; e.g. Banana Pi) ─────────────────────────┐
+│                                                                            │
+│  mic → [1] wyoming-satellite (port 10700) ◄────── Home Assistant (Wyoming │
+│             │ "was the wake word said?"            integration + Assist    │
+│             ▼                                      pipeline)               │
+│        [2] wyoming-nanowakeword — light model, low threshold, --cascade    │
+│             │ candidate? send ~3 s of buffered audio for confirmation      │
+└─────────────┼──────────────────────────────────────────────────────────────┘
+              ▼ HTTP (LAN)
+┌─ CENTRAL SERVER (strong machine) ──────────────────────────────────────────┐
+│        [3] wyoming-nanowakeword — quality ensemble (POST /api/test)        │
+│            answers only: "yes, that's the wake word" / "no"                │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-If the central server is unreachable the satellite accepts candidates on its
-own by default (`verify_fail_open`), so voice control survives server
-downtime. Verification can be toggled off entirely with one switch in Home
-Assistant — then the satellite's own model decides alone.
+The Wyoming `Detection` that wakes the Voice Assist pipeline is sent only
+when the ensemble agrees. Rejected candidates are counted (`rejections` in
+`/api/scores`), published on the event stream, and their audio is saved to
+the capture directory (`*-rejected-*.wav`) for threshold tuning. If the
+central server is unreachable, the satellite accepts candidates on its own
+by default (`verify_fail_open`), so voice control survives server downtime.
+Verification can be toggled off entirely with one switch in Home Assistant —
+then the satellite's model decides alone.
+
+### Running it
+
+**Central server** (strong machine):
+
+```bash
+git clone https://github.com/rvsh2/wyoming-nanowakeword.git
+cd wyoming-nanowakeword
+docker compose up -d --build     # ensemble on :10400, API on :10401
+```
+
+**Satellite device** (piece [2] — the light wake word model):
+
+```bash
+# put the light model (e.g. agata_quartznet_v1.onnx + its _lite gate) in ./data
+echo "NANOWAKEWORD_HTTP_TOKEN=<token>" > .env
+docker compose -f compose.satellite.yml up -d    # wake on :10400, API on :10401
+```
+
+**Satellite device** (piece [1] — mic/speaker, talks to Home Assistant):
+
+```bash
+git clone https://github.com/rhasspy/wyoming-satellite.git /opt/wyoming-satellite
+cd /opt/wyoming-satellite && script/setup
+script/run \
+  --name 'my-satellite' \
+  --uri 'tcp://0.0.0.0:10700' \
+  --mic-command 'parecord --rate=16000 --channels=1 --format=s16le --raw' \
+  --snd-command 'paplay --rate=22050 --channels=1 --format=s16le --raw' \
+  --wake-uri 'tcp://127.0.0.1:10400' \
+  --wake-word-name 'agata_quartznet'
+```
+
+(Run it as a systemd service in practice; use `arecord`/`aplay` instead of
+the pulse commands on ALSA-only systems.)
+
+**Home Assistant**:
+
+1. The **Wyoming** integration discovers the satellite (port `10700`) — pick
+   it in your Voice Assist pipeline. This is the only piece HA needs.
+2. Optionally add the **NanoWakeWord** integration twice — once for the
+   central server and once for the satellite instance — to manage models,
+   thresholds and verification from the UI.
+3. Point the satellite at the verifier: satellite's integration entry →
+   Configure → *Configure central verifier* (or pre-set `--verify-url`,
+   `--verify-token`, `--verify-model` in `compose.satellite.yml`).
+
+To test everything on a single machine (as a fake satellite), shift the
+satellite instance's ports (e.g. `10402/10403`) so they don't collide with
+the central one.
+
+Hybrid is optional. Two simpler modes: point wyoming-satellite's
+`--wake-uri` directly at the central server (no satellite container, but
+audio streams over the LAN continuously), or turn the *Server verification*
+switch off (the satellite's model decides alone).
 
 ## Runtime Settings
 
@@ -232,59 +296,6 @@ To serve different or additional wake words, drop more `.onnx` models into
   with a conservative `vad_threshold`.
 - Missed detections: decrease `threshold`, disable VAD, or use a better trained
   model.
-
-## Polski
-
-`wyoming-nanowakeword` to serwer Wyoming dla Home Assistant, który uruchamia
-inferencję modeli NanoWakeWord `.onnx`.
-
-Projekt jest tylko do inferencji. Instaluje NanoWakeWord bezpośrednio z
-`https://github.com/arcosoph/nanowakeword.git` i nie instaluje
-`nanowakeword[train]`, PyTorch, notebooków, Colab ani narzędzi datasetowych.
-
-### Instalacja
-
-- **Dodatek Home Assistant**: dodaj to repozytorium jako repozytorium
-  dodatków, zainstaluj `nanoWakeWord`, wgraj modele do `/share/nanowakeword`
-  i uruchom. Wake word wybierzesz w Voice Assist przez integrację Wyoming.
-- **Docker Compose**: `docker compose up -d --build` po sklonowaniu repo —
-  modele Agaty (ensemble E-Branchformer + Conformer) są w `data/` i serwer
-  działa od razu na porcie `10400`.
-- **HACS**: dodaj to repo jako custom repository (kategoria *Integration*)
-  i zainstaluj integrację **NanoWakeWord** — daje wgrywanie modeli z
-  przeglądarki, kopie zapasowe/przywracanie, sensory z liczbą modeli i
-  szczytowymi score'ami (do strojenia progów) oraz serwisy
-  `nanowakeword.*`. Przy włączonym zeroconf serwer jest wykrywany
-  automatycznie.
-
-### API zarządzania modelami
-
-Serwer wystawia REST API na porcie `10401` (`--http-port`): lista modeli,
-upload `.onnx`/`models.yaml`, usuwanie, podgląd score'ów (`/api/scores`),
-backup jako zip i restore. Zmiany są walidowane i wycofywane, jeśli psułyby
-zestaw modeli. Dodatek zawsze uruchamia API z tokenem (generowany
-automatycznie i wypisywany w logu dodatku, gdy `http_token` jest pusty);
-w compose API słucha tylko na `127.0.0.1`, a token ustawisz przez
-`NANOWAKEWORD_HTTP_TOKEN` w `.env`.
-
-### Hybryda satelita + serwer
-
-Na słabym sprzęcie (Raspberry Pi, Banana Pi) uruchom lekki model (np.
-quartznet) z obniżonym progiem i włączonym `--cascade` (`compose.satellite.yml`),
-a w opcjach integracji wskaż centralny serwer jako weryfikator ("Skonfiguruj
-centralny weryfikator"). Kandydackie detekcje satelity są potwierdzane przez
-ensemble na mocnej maszynie, zanim obudzą pipeline Voice Assist. Weryfikację
-wyłączysz jednym przełącznikiem w HA; gdy serwer centralny jest niedostępny,
-satelita domyślnie decyduje sam. Wszystkie ustawienia (progi, trigger level,
-cascade, VAD, nagrywanie detekcji) zmienisz encjami switch/number w HA — bez
-terminala.
-
-### Strojenie progów
-
-Sensory diagnostyczne `peak score` (per model, z score'ami członków
-ensemble w atrybutach) pokazują, jak blisko progu były ostatnie próby.
-Jeśli prawdziwa "Agata" nie jest wykrywana — obniż progi w `models.yaml`;
-jeśli są fałszywe wyzwolenia — podnieś je albo zwiększ `trigger_level`.
 
 ## References
 
