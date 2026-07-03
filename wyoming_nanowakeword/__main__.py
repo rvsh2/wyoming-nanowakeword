@@ -83,6 +83,23 @@ async def main() -> None:
         "--http-token",
         help="Bearer token required by the HTTP model management API",
     )
+    parser.add_argument(
+        "--capture-dir",
+        help="Save a WAV of the audio leading up to each detection here "
+        "(training data; disabled unless set)",
+    )
+    parser.add_argument(
+        "--capture-seconds",
+        type=float,
+        default=3.0,
+        help="Seconds of audio to keep before a detection (default: 3.0)",
+    )
+    parser.add_argument(
+        "--capture-keep",
+        type=int,
+        default=200,
+        help="Newest capture files to keep (default: 200)",
+    )
     parser.add_argument("--debug", action="store_true", help="Log DEBUG messages")
     parser.add_argument(
         "--log-format",
@@ -153,6 +170,8 @@ async def main() -> None:
             host=args.http_host,
             port=args.http_port,
             token=args.http_token,
+            interpreter_manager=interpreter_manager,
+            default_threshold=args.threshold,
         )
         await model_api.start()
 
@@ -189,6 +208,9 @@ async def main() -> None:
                 gate_threshold=args.gate_threshold,
                 state=state,
                 interpreter_manager=interpreter_manager,
+                capture_dir=Path(args.capture_dir) if args.capture_dir else None,
+                capture_seconds=args.capture_seconds,
+                capture_keep=args.capture_keep,
             )
         )
     except KeyboardInterrupt:

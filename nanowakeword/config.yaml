@@ -29,6 +29,9 @@ options:
   # prints it in the add-on log; the API is never exposed unauthenticated.
   http_api: true
   http_token: ""
+  # Save a WAV of the audio around each detection to
+  # /share/nanowakeword/captures (training data for the next model version).
+  capture_detections: false
   debug_logging: false
 schema:
   model_dir: str
@@ -41,6 +44,7 @@ schema:
   gate_threshold: float
   http_api: bool
   http_token: str?
+  capture_detections: bool
   debug_logging: bool
 ports:
   "10400/tcp": null

@@ -19,7 +19,9 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data.coordinator
-    async_add_entities([NanoWakeWordModelsSensor(entry)])
+    async_add_entities(
+        [NanoWakeWordModelsSensor(entry), NanoWakeWordClientsSensor(entry)]
+    )
 
     known_models: set[str] = set()
 
@@ -68,6 +70,20 @@ class NanoWakeWordModelsSensor(NanoWakeWordEntity, SensorEntity):
         }
 
 
+class NanoWakeWordClientsSensor(NanoWakeWordEntity, SensorEntity):
+    """Number of Wyoming clients (satellites) connected to the server."""
+
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        super().__init__(entry, "clients")
+
+    @property
+    def native_value(self) -> int:
+        return self.coordinator.data.get("clients", 0)
+
+
 class NanoWakeWordScoreSensor(NanoWakeWordEntity, SensorEntity):
     """Recent peak inference score of one wake word — for threshold tuning."""
 
@@ -107,8 +123,13 @@ class NanoWakeWordScoreSensor(NanoWakeWordEntity, SensorEntity):
             "last_score": stats.get("last"),
             "detections": stats.get("detections"),
             "peak_age_seconds": stats.get("peak_age_seconds"),
+            "avg_inference_ms": stats.get("avg_inference_ms"),
             "member_scores": {
                 member: scores.get(member, {}).get("peak") for member in members
+            },
+            "member_inference_ms": {
+                member: scores.get(member, {}).get("avg_inference_ms")
+                for member in members
             },
         }
 

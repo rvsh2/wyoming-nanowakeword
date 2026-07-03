@@ -10,6 +10,7 @@ VAD_THRESHOLD="$(bashio::config 'vad_threshold')"
 CASCADE="$(bashio::config 'cascade')"
 GATE_THRESHOLD="$(bashio::config 'gate_threshold')"
 HTTP_API="$(bashio::config 'http_api')"
+CAPTURE_DETECTIONS="$(bashio::config 'capture_detections')"
 DEBUG_LOGGING="$(bashio::config 'debug_logging')"
 
 # The model dir must exist before the server scans it and before the HTTP
@@ -34,6 +35,10 @@ fi
 
 if [[ "${CASCADE}" == "true" ]]; then
   args+=("--cascade")
+fi
+
+if [[ "${CAPTURE_DETECTIONS}" == "true" ]]; then
+  args+=("--capture-dir" "${MODEL_DIR}/captures")
 fi
 
 if [[ "${HTTP_API}" == "true" ]]; then

@@ -179,6 +179,117 @@ async def test_trigger_level_resets_on_miss(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_per_model_threshold_override(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").touch()
+    (tmp_path / "models.yaml").write_text(
+        'models:\n  hey_home:\n    threshold: 0.5\n    trigger_level: 2\n',
+        encoding="utf-8",
+    )
+    state = State(model_dirs=[tmp_path], default_model="hey_home")
+    state.refresh()
+    collector = EventCollector()
+    interpreter = FakeInterpreter(score=0.6)  # above 0.5, below global 0.95
+
+    handler = NanoWakeWordEventHandler(
+        "test",
+        collector,
+        threshold=0.95,
+        trigger_level=1,
+        refractory_seconds=2.0,
+        vad_threshold=0.0,
+        cascade=False,
+        gate_threshold=0.3,
+        state=state,
+        interpreter_factory=lambda **kwargs: interpreter,
+    )
+    handler.write_event = collector.write_event  # type: ignore[method-assign]
+
+    await handler.handle_event(Detect(names=["hey_home"]).event())
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    for _ in range(2):  # trigger_level override: 2 consecutive hits needed
+        await handler.handle_event(
+            AudioChunk(
+                rate=16000,
+                width=2,
+                channels=1,
+                audio=(b"\x01\x00" * 1280),
+            ).event()
+        )
+
+    detections = [event for event in collector.events if Detection.is_type(event.type)]
+    assert len(detections) == 1
+
+
+@pytest.mark.asyncio
+async def test_capture_writes_wav_on_detection(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").touch()
+    capture_dir = tmp_path / "captures"
+    state = State(model_dirs=[tmp_path], default_model="hey_home")
+    state.refresh()
+    collector = EventCollector()
+    interpreter = FakeInterpreter(score=0.99)
+
+    handler = NanoWakeWordEventHandler(
+        "test",
+        collector,
+        threshold=0.95,
+        trigger_level=1,
+        refractory_seconds=2.0,
+        vad_threshold=0.0,
+        cascade=False,
+        gate_threshold=0.3,
+        state=state,
+        interpreter_factory=lambda **kwargs: interpreter,
+        capture_dir=capture_dir,
+        capture_seconds=1.0,
+    )
+    handler.write_event = collector.write_event  # type: ignore[method-assign]
+
+    await handler.handle_event(Detect(names=["hey_home"]).event())
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    await handler.handle_event(
+        AudioChunk(
+            rate=16000,
+            width=2,
+            channels=1,
+            audio=(b"\x01\x00" * 1280),
+        ).event()
+    )
+
+    captures = list(capture_dir.glob("hey_home-*.wav"))
+    assert len(captures) == 1
+
+    import wave
+
+    with wave.open(str(captures[0]), "rb") as wav_file:
+        assert wav_file.getframerate() == 16000
+        assert wav_file.getnframes() == 1280
+
+
+@pytest.mark.asyncio
+async def test_detection_publishes_event(tmp_path: Path) -> None:
+    interpreter = FakeInterpreter(score=0.99)
+    handler, _collector = _handler(tmp_path, interpreter)
+    queue = handler.state.subscribe()
+
+    await handler.handle_event(Detect(names=["hey_home"]).event())
+    await handler.handle_event(AudioStart(rate=16000, width=2, channels=1).event())
+    await handler.handle_event(
+        AudioChunk(
+            rate=16000,
+            width=2,
+            channels=1,
+            audio=(b"\x01\x00" * 1280),
+        ).event()
+    )
+
+    event = queue.get_nowait()
+    assert event["type"] == "detection"
+    assert event["model"] == "hey_home"
+    assert event["score"] == 0.99
+
+
+@pytest.mark.asyncio
 async def test_detectors_reload_after_model_refresh(tmp_path: Path) -> None:
     interpreter = FakeInterpreter(score=0.0)
     handler, _collector = _handler(tmp_path, interpreter)

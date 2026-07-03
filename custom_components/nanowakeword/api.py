@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import quote
 
@@ -68,6 +70,36 @@ class NanoWakeWordClient:
         form = aiohttp.FormData()
         form.add_field("file", content, filename="backup.zip")
         return await self._request_json("POST", "/restore", data=form)
+
+    async def test_recording(
+        self, filename: str, content: bytes, model_id: str | None = None
+    ) -> dict[str, Any]:
+        form = aiohttp.FormData()
+        form.add_field("file", content, filename=filename)
+        path = "/test" + (f"?model={quote(model_id, safe='')}" if model_id else "")
+        return await self._request_json("POST", path, data=form)
+
+    async def listen_events(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield server-sent events (detections). Runs until disconnected."""
+
+        timeout = aiohttp.ClientTimeout(total=None, connect=30, sock_read=None)
+        try:
+            async with self._session.get(
+                f"{self._base_url}/events", headers=self._headers, timeout=timeout
+            ) as response:
+                if response.status == 401:
+                    raise NanoWakeWordAuthError("Invalid or missing API token")
+                if response.status >= 400:
+                    raise NanoWakeWordApiError(
+                        f"Event stream returned {response.status}"
+                    )
+
+                async for raw_line in response.content:
+                    line = raw_line.decode("utf-8", "replace").strip()
+                    if line.startswith("data:"):
+                        yield json.loads(line[len("data:") :])
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            raise NanoWakeWordApiError(f"Event stream failed: {err}") from err
 
     async def _request_json(
         self, method: str, path: str, **kwargs: Any

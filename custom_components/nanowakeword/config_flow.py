@@ -30,7 +30,9 @@ from .const import (
     CONF_BACKUP,
     CONF_BACKUP_FILE,
     CONF_FILENAME,
+    CONF_MODEL,
     CONF_MODEL_FILE,
+    CONF_RECORDING,
     CONF_TOKEN,
     DEFAULT_PORT,
     DOMAIN,
@@ -174,9 +176,71 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
             menu_options=[
                 "upload_model",
                 "delete_model",
+                "test_recording",
                 "restore_saved",
                 "restore_backup",
             ],
+        )
+
+    async def async_step_test_recording(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Score an uploaded WAV against a wake word model."""
+
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
+
+        models = [
+            model["id"]
+            for model in (self.config_entry.runtime_data.coordinator.data or {}).get(
+                "models", []
+            )
+        ]
+        if not models:
+            return self.async_abort(reason="no_model_files")
+
+        if user_input is not None:
+            name, content = await self.hass.async_add_executor_job(
+                self._read_uploaded_file, user_input[CONF_RECORDING]
+            )
+            try:
+                result = await self._client.test_recording(
+                    name, content, user_input[CONF_MODEL]
+                )
+            except NanoWakeWordApiError as err:
+                errors["base"] = "test_failed"
+                placeholders["error"] = str(err)
+            else:
+                member_peaks = ", ".join(
+                    f"{member}: {peak:.3f}"
+                    for member, peak in sorted(result["member_peaks"].items())
+                )
+                return self.async_abort(
+                    reason="test_result",
+                    description_placeholders={
+                        "model": result["model"],
+                        "verdict": "✅" if result["would_detect"] else "❌",
+                        "peak": f"{result['peak']:.3f}",
+                        "threshold": f"{result['threshold']:.3f}",
+                        "duration": str(result["duration_seconds"]),
+                        "member_peaks": member_peaks or "-",
+                    },
+                )
+
+        return self.async_show_form(
+            step_id="test_recording",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_MODEL, default=models[0]): SelectSelector(
+                        SelectSelectorConfig(options=models)
+                    ),
+                    vol.Required(CONF_RECORDING): FileSelector(
+                        FileSelectorConfig(accept=".wav")
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_restore_saved(

@@ -120,6 +120,34 @@ async def test_setup_creates_model_and_score_entities(
         )
 
 
+async def test_detection_event_entity_fires_on_sse_event(
+    hass: HomeAssistant, mock_client: MagicMock
+) -> None:
+    from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+    from custom_components.nanowakeword.const import SIGNAL_DETECTION
+
+    entry = await _setup_entry(hass)
+    registry = er.async_get(hass)
+    event_entity = registry.async_get_entity_id(
+        "event", DOMAIN, f"{entry.entry_id}_detection"
+    )
+    assert event_entity is not None
+
+    async_dispatcher_send(
+        hass,
+        SIGNAL_DETECTION.format(entry.entry_id),
+        {"type": "detection", "model": "agata", "score": 0.98, "timestamp": 1234},
+    )
+    await hass.async_block_till_done()
+
+    state = hass.states.get(event_entity)
+    assert state is not None
+    assert state.attributes["event_type"] == "detection"
+    assert state.attributes["model"] == "agata"
+    assert state.attributes["score"] == 0.98
+
+
 async def test_backup_service_writes_and_rotates(
     hass: HomeAssistant, mock_client: MagicMock
 ) -> None:

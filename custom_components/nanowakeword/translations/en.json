@@ -42,7 +42,8 @@
           "upload_model": "Upload a model file",
           "delete_model": "Delete a model file",
           "restore_backup": "Restore a backup",
-          "restore_saved": "Restore a saved backup"
+          "restore_saved": "Restore a saved backup",
+          "test_recording": "Test a recording"
         }
       },
       "upload_model": {
@@ -73,18 +74,28 @@
         "data": {
           "backup": "Backup"
         }
+      },
+      "test_recording": {
+        "title": "Test a recording",
+        "description": "Upload a WAV recording of the wake word (or a false trigger) to see what scores each model gives. {error}",
+        "data": {
+          "model": "Wake word",
+          "recording": "Recording (.wav)"
+        }
       }
     },
     "error": {
       "invalid_filename": "The filename must end with .onnx, or be exactly models.yaml (the only metadata file the server reads).",
       "upload_failed": "The server rejected the upload.",
       "delete_failed": "The server rejected the deletion.",
-      "restore_failed": "The server rejected the restore."
+      "restore_failed": "The server rejected the restore.",
+      "test_failed": "The server could not score the recording."
     },
     "abort": {
       "not_loaded": "The NanoWakeWord entry is not loaded.",
       "no_model_files": "The server has no model files to delete.",
-      "no_backups": "No saved backups found in /config/nanowakeword. Use the Backup models button or service first."
+      "no_backups": "No saved backups found in /config/nanowakeword. Use the Backup models button or service first.",
+      "test_result": "Result for {model}: {verdict} peak {peak} vs threshold {threshold} ({duration}s audio). Member peaks: {member_peaks}"
     }
   },
   "entity": {
@@ -94,6 +105,9 @@
       },
       "peak_score": {
         "name": "{model} peak score"
+      },
+      "clients": {
+        "name": "Connected clients"
       }
     },
     "button": {
@@ -102,6 +116,18 @@
       },
       "reload_models": {
         "name": "Reload models"
+      }
+    },
+    "event": {
+      "detection": {
+        "name": "Detection",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "detection": "Wake word detected"
+            }
+          }
+        }
       }
     }
   },

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,10 @@ class State:
     # can notice that model files changed underneath them.
     generation: int = 0
     scores: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Connected Wyoming clients (satellites / Home Assistant).
+    clients: int = 0
+    # Subscribers of server events (detections), e.g. SSE connections.
+    listeners: list[asyncio.Queue] = field(default_factory=list)
 
     def refresh(self) -> None:
         """Refresh available ONNX models from configured directories."""
@@ -59,7 +64,9 @@ class State:
 
         return next(iter(self.models), None)
 
-    def update_score(self, model_id: str, score: float) -> None:
+    def update_score(
+        self, model_id: str, score: float, inference_ms: float | None = None
+    ) -> None:
         """Record an inference score (called from inference threads)."""
 
         now = time.monotonic()
@@ -70,12 +77,39 @@ class State:
                 "peak": 0.0,
                 "peak_at": now,
                 "detections": 0,
+                "avg_ms": None,
             }
 
         stats["last"] = score
         if score >= stats["peak"] or now - stats["peak_at"] > PEAK_WINDOW_SECONDS:
             stats["peak"] = score
             stats["peak_at"] = now
+
+        if inference_ms is not None:
+            previous = stats.get("avg_ms")
+            # Exponential moving average keeps the number stable but current.
+            if previous is None:
+                stats["avg_ms"] = inference_ms
+            else:
+                stats["avg_ms"] = 0.9 * previous + 0.1 * inference_ms
+
+    def subscribe(self) -> asyncio.Queue:
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self.listeners.append(queue)
+        return queue
+
+    def unsubscribe(self, queue: asyncio.Queue) -> None:
+        if queue in self.listeners:
+            self.listeners.remove(queue)
+
+    def publish(self, event: dict[str, Any]) -> None:
+        """Broadcast a server event to all subscribers (never blocks)."""
+
+        for queue in list(self.listeners):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                continue
 
     def record_detection(self, model_id: str) -> None:
         stats = self.scores.get(model_id)

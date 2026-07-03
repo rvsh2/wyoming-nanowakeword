@@ -31,11 +31,19 @@ models:
 
 @asynccontextmanager
 async def _client(
-    tmp_path: Path, token: str | None = None
+    tmp_path: Path,
+    token: str | None = None,
+    interpreter_manager: object | None = None,
 ) -> AsyncIterator[tuple[TestClient, State]]:
     state = State(model_dirs=[tmp_path])
     state.refresh()
-    api = ModelApi(state, host="127.0.0.1", port=0, token=token)
+    api = ModelApi(
+        state,
+        host="127.0.0.1",
+        port=0,
+        token=token,
+        interpreter_manager=interpreter_manager,  # type: ignore[arg-type]
+    )
     client = TestClient(TestServer(api.build_app()))
     await client.start_server()
     try:
@@ -270,6 +278,86 @@ async def test_scores_endpoint_reports_inference_stats(tmp_path: Path) -> None:
         assert stats["last"] == 0.42
         assert stats["peak"] == 0.42
         assert stats["detections"] == 1
+
+
+def _wav_bytes(samples: int = 1280 * 3) -> bytes:
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(16000)
+        wav_file.writeframes(b"\x01\x00" * samples)
+    return buffer.getvalue()
+
+
+class _StaticInterpreter:
+    def __init__(self, score: float, model_id: str) -> None:
+        self.score = score
+        self.model_id = model_id
+
+    def predict(self, _audio: object) -> dict[str, float]:
+        return {self.model_id: self.score}
+
+    def reset(self) -> None:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_recording_test_endpoint_scores_wav(tmp_path: Path) -> None:
+    from wyoming_nanowakeword.interpreters import InterpreterManager
+
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+    state = State(model_dirs=[tmp_path])
+    state.refresh()
+    manager = InterpreterManager(
+        state, factory=lambda **kwargs: _StaticInterpreter(0.97, "hey_home")
+    )
+
+    async with _client(tmp_path, interpreter_manager=manager) as (client, _state):
+        response = await client.post(
+            "/api/test?model=hey_home",
+            data=_upload_form("sample.wav", _wav_bytes()),
+        )
+        assert response.status == 200
+        result = await response.json()
+        assert result["model"] == "hey_home"
+        assert result["would_detect"] is True
+        assert result["peak"] == 0.97
+        assert len(result["fused_series"]) == 3
+
+        response = await client.post(
+            "/api/test?model=nope", data=_upload_form("sample.wav", _wav_bytes())
+        )
+        assert response.status == 404
+
+        response = await client.post(
+            "/api/test?model=hey_home",
+            data=_upload_form("sample.txt", b"not audio"),
+        )
+        assert response.status == 400
+
+
+@pytest.mark.asyncio
+async def test_events_stream_delivers_detections(tmp_path: Path) -> None:
+    import json
+
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+
+    async with _client(tmp_path) as (client, state):
+        response = await client.get("/api/events")
+        assert response.status == 200
+
+        state.publish({"type": "detection", "model": "hey_home", "score": 0.99})
+
+        line = b""
+        while not line.startswith(b"data:"):
+            line = await response.content.readline()
+
+        event = json.loads(line[len(b"data:") :])
+        assert event["model"] == "hey_home"
+        response.close()
 
 
 @pytest.mark.asyncio

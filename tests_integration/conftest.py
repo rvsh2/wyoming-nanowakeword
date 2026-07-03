@@ -7,7 +7,9 @@ server unit tests — see the integration-tests job in CI.
 
 from __future__ import annotations
 
-from collections.abc import Generator
+import asyncio
+from collections.abc import AsyncIterator, Generator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -63,6 +65,27 @@ def mock_client() -> Generator[MagicMock, None, None]:
     client.upload_model = AsyncMock(return_value={})
     client.delete_model = AsyncMock(return_value={})
     client.reload = AsyncMock(return_value={})
+    client.test_recording = AsyncMock(
+        return_value={
+            "model": "agata",
+            "duration_seconds": 1.2,
+            "chunk_ms": 80,
+            "threshold": 0.95,
+            "peak": 0.97,
+            "would_detect": True,
+            "member_peaks": {"agata_ebranchformer": 0.98},
+            "fused_series": [0.1, 0.97],
+            "member_series": {"agata_ebranchformer": [0.1, 0.98]},
+        }
+    )
+
+    async def _no_events() -> AsyncIterator[dict[str, Any]]:
+        # Async generator that never yields: keeps the SSE listener idle.
+        if False:
+            yield {}
+        await asyncio.Event().wait()
+
+    client.listen_events = _no_events
 
     with (
         patch(

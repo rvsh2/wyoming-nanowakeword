@@ -7,6 +7,8 @@ CONF_MODEL_FILE = "model_file"
 CONF_BACKUP_FILE = "backup_file"
 CONF_BACKUP = "backup"
 CONF_FILENAME = "filename"
+CONF_RECORDING = "recording"
+CONF_MODEL = "model"
 
 DEFAULT_PORT = 10401
 
@@ -14,6 +16,8 @@ BACKUP_DIR = "nanowakeword"
 
 ATTR_ENTRY_ID = "entry_id"
 ATTR_PATH = "path"
+
+SIGNAL_DETECTION = "nanowakeword_detection_{}"
 
 SERVICE_BACKUP = "backup"
 SERVICE_RESTORE = "restore"

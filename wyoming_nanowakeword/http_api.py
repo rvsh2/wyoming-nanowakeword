@@ -7,20 +7,28 @@ The Wyoming protocol itself cannot carry files.
 
 from __future__ import annotations
 
+import asyncio
 import io
+import json
 import logging
 import re
 import time
+import wave
 import zipfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+import numpy as np
 import yaml
 from aiohttp import BodyPartReader, web
+from wyoming.audio import AudioChunk, AudioChunkConverter
 
 from . import __version__
+from .fusion import fuse_scores, score_from_result
+from .interpreters import InterpreterManager
+from .models import ModelEntry
 from .state import State
 
 _LOGGER = logging.getLogger(__name__)
@@ -29,6 +37,23 @@ _METADATA_NAME = "models.yaml"
 _SAFE_FILENAME = re.compile(r"^[A-Za-z0-9._-]+$")
 _MAX_UPLOAD_BYTES = 256 * 1024 * 1024
 _MAX_RESTORE_BYTES = 1024 * 1024 * 1024
+_TEST_CHUNK_SAMPLES = 1280  # 80 ms at 16 kHz, NanoWakeWord's feature stride
+
+
+def _load_wav_as_int16(content: bytes) -> np.ndarray:
+    """Decode a WAV file to 16 kHz mono int16 samples."""
+
+    with wave.open(io.BytesIO(content), "rb") as wav_file:
+        frames = wav_file.readframes(wav_file.getnframes())
+        chunk = AudioChunk(
+            rate=wav_file.getframerate(),
+            width=wav_file.getsampwidth(),
+            channels=wav_file.getnchannels(),
+            audio=frames,
+        )
+
+    converter = AudioChunkConverter(rate=16000, width=2, channels=1)
+    return np.frombuffer(converter.convert(chunk).audio, dtype=np.int16)
 
 
 def _is_managed_name(name: str) -> bool:
@@ -60,6 +85,8 @@ class ModelApi:
         host: str,
         port: int,
         token: str | None = None,
+        interpreter_manager: InterpreterManager | None = None,
+        default_threshold: float = 0.95,
     ) -> None:
         if not state.model_dirs:
             raise ValueError("HTTP API requires at least one model directory")
@@ -68,6 +95,8 @@ class ModelApi:
         self.host = host
         self.port = port
         self.token = token
+        self.interpreter_manager = interpreter_manager
+        self.default_threshold = default_threshold
         self._runner: web.AppRunner | None = None
 
     @property
@@ -97,6 +126,8 @@ class ModelApi:
                 web.post("/api/refresh", self.refresh),
                 web.get("/api/backup", self.backup),
                 web.post("/api/restore", self.restore),
+                web.post("/api/test", self.test_recording),
+                web.get("/api/events", self.events),
             ]
         )
         return app
@@ -121,6 +152,7 @@ class ModelApi:
                 "version": __version__,
                 "model_dir": str(self.model_dir),
                 "models": sorted(self.state.models),
+                "clients": self.state.clients,
             }
         )
 
@@ -137,6 +169,11 @@ class ModelApi:
                 "peak": round(stats["peak"], 4),
                 "peak_age_seconds": round(now - stats["peak_at"], 1),
                 "detections": stats["detections"],
+                "avg_inference_ms": (
+                    round(stats["avg_ms"], 2)
+                    if stats.get("avg_ms") is not None
+                    else None
+                ),
             }
             for model_id, stats in self.state.scores.items()
         }
@@ -236,6 +273,117 @@ class ModelApi:
         _LOGGER.info("Restored %s model files from backup", len(writes))
         return web.json_response(self._models_payload())
 
+    async def test_recording(self, request: web.Request) -> web.Response:
+        """Score an uploaded WAV recording against a wake word model.
+
+        Returns the per-chunk score series for every ensemble member and the
+        fused score, so thresholds can be tuned against real recordings
+        instead of live audio.
+        """
+
+        if self.interpreter_manager is None:
+            raise web.HTTPNotImplemented(
+                text="Recording test requires the full server (no interpreters)"
+            )
+
+        model_id = request.query.get("model") or self.state.get_default_model_id()
+        if not model_id or model_id not in self.state.models:
+            raise web.HTTPNotFound(text=f"No such wake word: {model_id!r}")
+
+        entry = self.state.models[model_id]
+        filename, content = await self._read_uploaded_file(request)
+        if not filename.lower().endswith(".wav"):
+            raise web.HTTPBadRequest(text=f"Expected a .wav file, got {filename!r}")
+
+        try:
+            audio = _load_wav_as_int16(content)
+        except (wave.Error, EOFError) as err:
+            raise web.HTTPBadRequest(text=f"Cannot read WAV file: {err}") from err
+
+        result = await asyncio.to_thread(self._score_recording, entry, audio)
+        return web.json_response(result)
+
+    def _score_recording(
+        self, entry: ModelEntry, audio: np.ndarray
+    ) -> dict[str, Any]:
+        assert self.interpreter_manager is not None
+        generation = self.state.generation
+        interpreters = self.interpreter_manager.acquire_for_entry(entry)
+        threshold = (
+            entry.metadata.threshold
+            if entry.metadata.threshold is not None
+            else self.default_threshold
+        )
+
+        member_series: dict[str, list[float]] = {
+            model_id: [] for model_id in interpreters
+        }
+        fused_series: list[float] = []
+        try:
+            for interpreter in interpreters.values():
+                interpreter.reset()
+
+            for start in range(0, len(audio), _TEST_CHUNK_SAMPLES):
+                chunk = audio[start : start + _TEST_CHUNK_SAMPLES]
+                scores: dict[str, float] = {}
+                for model_id, interpreter in interpreters.items():
+                    result = interpreter.predict(chunk)
+                    scores[model_id] = score_from_result(result, model_id)
+                    member_series[model_id].append(round(scores[model_id], 4))
+
+                fused = (
+                    fuse_scores(entry, scores, self.default_threshold)
+                    if entry.is_ensemble
+                    else next(iter(scores.values()))
+                )
+                fused_series.append(round(fused, 4))
+        finally:
+            self.interpreter_manager.release(interpreters, generation)
+
+        return {
+            "model": entry.id,
+            "duration_seconds": round(len(audio) / 16000, 2),
+            "chunk_ms": 80,
+            "threshold": threshold,
+            "peak": max(fused_series, default=0.0),
+            "would_detect": any(score > threshold for score in fused_series),
+            "member_peaks": {
+                model_id: max(series, default=0.0)
+                for model_id, series in member_series.items()
+            },
+            "fused_series": fused_series,
+            "member_series": member_series,
+        }
+
+    async def events(self, request: web.Request) -> web.StreamResponse:
+        """Server-sent events stream of detections."""
+
+        queue = self.state.subscribe()
+        response = web.StreamResponse(
+            headers={
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            }
+        )
+        await response.prepare(request)
+
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30)
+                except asyncio.TimeoutError:
+                    await response.write(b": keepalive\n\n")
+                    continue
+
+                await response.write(f"data: {json.dumps(event)}\n\n".encode())
+        except (ConnectionResetError, asyncio.CancelledError):
+            pass
+        finally:
+            self.state.unsubscribe(queue)
+
+        return response
+
     def _models_payload(self) -> dict[str, Any]:
         models = []
         for entry in self.state.models.values():
@@ -256,6 +404,7 @@ class ModelApi:
         return {
             "models": sorted(models, key=lambda model: model["id"]),
             "files": sorted(path.name for path in self._managed_files()),
+            "clients": self.state.clients,
         }
 
     def _managed_files(self) -> list[Path]:

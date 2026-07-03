@@ -42,7 +42,8 @@
           "upload_model": "Wgraj plik modelu",
           "delete_model": "Usuń plik modelu",
           "restore_backup": "Przywróć kopię zapasową",
-          "restore_saved": "Przywróć zapisaną kopię"
+          "restore_saved": "Przywróć zapisaną kopię",
+          "test_recording": "Przetestuj nagranie"
         }
       },
       "upload_model": {
@@ -73,18 +74,28 @@
         "data": {
           "backup": "Kopia zapasowa"
         }
+      },
+      "test_recording": {
+        "title": "Przetestuj nagranie",
+        "description": "Wgraj nagranie WAV wake worda (albo fałszywego wyzwolenia), aby zobaczyć score'y każdego modelu. {error}",
+        "data": {
+          "model": "Wake word",
+          "recording": "Nagranie (.wav)"
+        }
       }
     },
     "error": {
       "invalid_filename": "Nazwa pliku musi kończyć się na .onnx albo być dokładnie models.yaml (jedyny plik metadanych czytany przez serwer).",
       "upload_failed": "Serwer odrzucił wgrywany plik.",
       "delete_failed": "Serwer odrzucił usunięcie pliku.",
-      "restore_failed": "Serwer odrzucił przywracanie kopii."
+      "restore_failed": "Serwer odrzucił przywracanie kopii.",
+      "test_failed": "Serwer nie mógł ocenić nagrania."
     },
     "abort": {
       "not_loaded": "Wpis NanoWakeWord nie jest załadowany.",
       "no_model_files": "Serwer nie ma plików modeli do usunięcia.",
-      "no_backups": "Brak zapisanych kopii w /config/nanowakeword. Najpierw użyj przycisku lub serwisu kopii zapasowej."
+      "no_backups": "Brak zapisanych kopii w /config/nanowakeword. Najpierw użyj przycisku lub serwisu kopii zapasowej.",
+      "test_result": "Wynik dla {model}: {verdict} szczyt {peak} vs próg {threshold} ({duration}s audio). Szczyty członków: {member_peaks}"
     }
   },
   "entity": {
@@ -94,6 +105,9 @@
       },
       "peak_score": {
         "name": "Szczytowy score: {model}"
+      },
+      "clients": {
+        "name": "Podłączeni klienci"
       }
     },
     "button": {
@@ -102,6 +116,18 @@
       },
       "reload_models": {
         "name": "Przeładuj modele"
+      }
+    },
+    "event": {
+      "detection": {
+        "name": "Detekcja",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "detection": "Wykryto wake word"
+            }
+          }
+        }
       }
     }
   },

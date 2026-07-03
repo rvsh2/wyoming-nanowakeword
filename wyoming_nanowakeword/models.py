@@ -27,6 +27,9 @@ class ModelMetadata:
     architecture: str | None = None
     version: str | None = None
     hidden: bool = False
+    # Per-model overrides of the server-wide --threshold / --trigger-level.
+    threshold: float | None = None
+    trigger_level: int | None = None
 
 
 @dataclass(frozen=True)
@@ -126,6 +129,7 @@ def _metadata_from_mapping(
 ) -> dict[str, ModelMetadata]:
     metadata: dict[str, ModelMetadata] = {}
     for model_id, entry in models.items():
+        raw_trigger_level = entry.get("trigger_level")
         metadata[model_id] = ModelMetadata(
             name=_optional_str(entry.get("name")),
             phrase=_optional_str(entry.get("phrase")),
@@ -133,6 +137,10 @@ def _metadata_from_mapping(
             architecture=_optional_str(entry.get("architecture")),
             version=_optional_str(entry.get("version")),
             hidden=bool(entry.get("hidden", False)),
+            threshold=_optional_float(entry.get("threshold")),
+            trigger_level=(
+                None if raw_trigger_level is None else int(raw_trigger_level)
+            ),
         )
 
     return metadata

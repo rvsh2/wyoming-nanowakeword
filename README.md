@@ -99,6 +99,8 @@ Add-on options:
 - `http_api`: enable the HTTP model management API on port `10401`
 - `http_token`: bearer token for the HTTP API; when empty, the add-on
   generates a persistent token and prints it in the add-on log
+- `capture_detections`: save a WAV of the audio around each detection to
+  `/share/nanowakeword/captures` (training data for the next model version)
 - `debug_logging`: verbose logs
 
 ## HTTP Model Management API
@@ -110,7 +112,11 @@ protocol itself cannot carry files:
 - `GET /api/info` — server version and served wake words
 - `GET /api/models` — models, ensembles, gates, and files
 - `GET /api/scores` — live inference scores per model (last, recent peak,
-  detection count) for threshold tuning
+  detection count, average inference time) for threshold tuning
+- `POST /api/test?model=<id>` — score an uploaded WAV recording against a
+  model: per-chunk score series for every ensemble member plus the fused
+  score and a would-it-detect verdict
+- `GET /api/events` — server-sent events stream of detections
 - `POST /api/models` — multipart upload of an `.onnx` or `models.yaml`
 - `DELETE /api/models/<filename>` — delete a model file
 - `POST /api/refresh` — re-scan the model directory
@@ -139,9 +145,13 @@ and HTTP port. It provides:
 
 - model upload from the browser (integration options → *Upload a model file*),
   plus delete and restore flows (from an uploaded zip or from a saved backup)
-- a `Wake word models` sensor listing served wake words, and per-model
-  diagnostic `peak score` sensors (with ensemble member scores as attributes)
-  for live threshold tuning
+- *Test a recording*: upload a WAV of your wake word (or a false trigger) and
+  see the peak score of every model against its threshold
+- a `Detection` event entity fired in real time on every wake word detection
+  (server-sent events), usable in automations
+- a `Wake word models` sensor listing served wake words, a `Connected
+  clients` sensor, and per-model diagnostic `peak score` sensors (with
+  ensemble member scores and inference times as attributes)
 - buttons for backup and model reload
 - services: `nanowakeword.backup` (saves a zip under `/config/nanowakeword`,
   keeps the 10 newest), `nanowakeword.restore`, `nanowakeword.upload_model`,
