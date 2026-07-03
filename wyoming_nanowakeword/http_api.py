@@ -29,6 +29,7 @@ from . import __version__
 from .fusion import fuse_scores, score_from_result
 from .interpreters import InterpreterManager
 from .models import ModelEntry
+from .settings import save_settings
 from .state import State
 
 _LOGGER = logging.getLogger(__name__)
@@ -128,6 +129,8 @@ class ModelApi:
                 web.post("/api/restore", self.restore),
                 web.post("/api/test", self.test_recording),
                 web.get("/api/events", self.events),
+                web.get("/api/settings", self.get_settings),
+                web.patch("/api/settings", self.patch_settings),
             ]
         )
         return app
@@ -159,6 +162,41 @@ class ModelApi:
     async def list_models(self, request: web.Request) -> web.Response:
         return web.json_response(self._models_payload())
 
+    async def get_settings(self, request: web.Request) -> web.Response:
+        return web.json_response(self.state.settings.as_dict())
+
+    async def patch_settings(self, request: web.Request) -> web.Response:
+        """Apply and persist a partial settings update.
+
+        This is how the Home Assistant integration changes detection
+        behavior (thresholds, cascade, verification, capture) at runtime.
+        """
+
+        try:
+            changes = await request.json()
+        except ValueError as err:
+            raise web.HTTPBadRequest(text="Expected a JSON object") from err
+
+        if not isinstance(changes, dict):
+            raise web.HTTPBadRequest(text="Expected a JSON object")
+
+        try:
+            self.state.settings.apply(changes)
+        except ValueError as err:
+            raise web.HTTPBadRequest(text=str(err)) from err
+
+        try:
+            save_settings(self.state.settings, self.model_dir)
+        except OSError as err:
+            _LOGGER.warning("Settings applied but not persisted: %s", err)
+
+        # Bump the generation: pooled interpreters may have been built with
+        # the old cascade/VAD options, and live detectors re-resolve their
+        # thresholds on the next pipeline run.
+        self.state.generation += 1
+        _LOGGER.info("Settings updated: %s", ", ".join(sorted(changes)))
+        return web.json_response(self.state.settings.as_dict())
+
     async def scores(self, request: web.Request) -> web.Response:
         """Live inference scores per model — for tuning thresholds."""
 
@@ -169,6 +207,7 @@ class ModelApi:
                 "peak": round(stats["peak"], 4),
                 "peak_age_seconds": round(now - stats["peak_at"], 1),
                 "detections": stats["detections"],
+                "rejections": stats.get("rejections", 0),
                 "avg_inference_ms": (
                     round(stats["avg_ms"], 2)
                     if stats.get("avg_ms") is not None
@@ -309,10 +348,11 @@ class ModelApi:
         assert self.interpreter_manager is not None
         generation = self.state.generation
         interpreters = self.interpreter_manager.acquire_for_entry(entry)
+        default_threshold = self.state.settings.threshold
         threshold = (
             entry.metadata.threshold
             if entry.metadata.threshold is not None
-            else self.default_threshold
+            else default_threshold
         )
 
         member_series: dict[str, list[float]] = {
@@ -332,7 +372,7 @@ class ModelApi:
                     member_series[model_id].append(round(scores[model_id], 4))
 
                 fused = (
-                    fuse_scores(entry, scores, self.default_threshold)
+                    fuse_scores(entry, scores, default_threshold)
                     if entry.is_ensemble
                     else next(iter(scores.values()))
                 )

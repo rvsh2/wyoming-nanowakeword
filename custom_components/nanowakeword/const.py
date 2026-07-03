@@ -9,6 +9,9 @@ CONF_BACKUP = "backup"
 CONF_FILENAME = "filename"
 CONF_RECORDING = "recording"
 CONF_MODEL = "model"
+CONF_VERIFY_URL = "verify_url"
+CONF_VERIFY_TOKEN = "verify_token"
+CONF_VERIFY_MODEL = "verify_model"
 
 DEFAULT_PORT = 10401
 

@@ -195,6 +195,7 @@ class NanoWakeWordScoreSensor(NanoWakeWordEntity, SensorEntity):
         return {
             "last_score": stats.get("last"),
             "detections": stats.get("detections"),
+            "rejections": stats.get("rejections"),
             "peak_age_seconds": stats.get("peak_age_seconds"),
             "avg_inference_ms": stats.get("avg_inference_ms"),
             "member_scores": {

@@ -135,6 +135,38 @@ the add-on log), and compose publishes it on `127.0.0.1` only. To expose it
 on the LAN, set a token (`--http-token <secret>`, or `NANOWAKEWORD_HTTP_TOKEN`
 in `.env` for compose) and send `Authorization: Bearer <secret>`.
 
+## Hybrid Satellite + Server
+
+For satellites with weak CPUs (Raspberry Pi, Banana Pi and similar), run a
+light model locally and let a strong central server confirm every candidate:
+
+1. **Satellite**: this server with a fast model (e.g. quartznet) at a
+   deliberately low threshold, plus `--cascade` so the tiny `_lite` gate keeps
+   idle CPU near zero. See `compose.satellite.yml`. Point wyoming-satellite's
+   wake word service at it.
+2. **Central server**: the regular setup serving a quality-first ensemble
+   (e.g. E-Branchformer + Conformer).
+3. **Verification**: configure the satellite with `--verify-url` (or from
+   Home Assistant: integration → Configure → *Configure central verifier*).
+   On every candidate the satellite sends its buffered audio to the central
+   `POST /api/test`; the Wyoming `Detection` wakes the Voice Assist pipeline
+   only when the ensemble agrees. Rejected candidates are counted
+   (`rejections` in `/api/scores`) and published on the event stream.
+
+If the central server is unreachable the satellite accepts candidates on its
+own by default (`verify_fail_open`), so voice control survives server
+downtime. Verification can be toggled off entirely with one switch in Home
+Assistant — then the satellite's own model decides alone.
+
+## Runtime Settings
+
+Detection behavior is adjustable at runtime through `GET/PATCH /api/settings`
+(persisted in `<model_dir>/settings.json`, surviving restarts; CLI flags and
+add-on options act as initial defaults): `threshold`, `trigger_level`,
+`refractory_seconds`, `vad_threshold`, `cascade`, `gate_threshold`,
+`capture`, and the `verify_*` options. The Home Assistant integration exposes
+all of them as switch/number entities — no terminal needed.
+
 ## Home Assistant Integration (HACS)
 
 The `custom_components/nanowakeword` integration is a UI for that API. Install
@@ -152,6 +184,11 @@ and HTTP port. It provides:
 - a `Wake word models` sensor listing served wake words, a `Connected
   clients` sensor, and per-model diagnostic `peak score` sensors (with
   ensemble member scores and inference times as attributes)
+- switches (server verification, cascade, audio capture) and number entities
+  (thresholds, trigger level, refractory, VAD) controlling the server's
+  runtime settings — persisted server-side
+- *Configure central verifier*: point a satellite at the central server for
+  hybrid detection
 - buttons for backup and model reload; each backup shows a notification
   with the saved path and updates a `Last backup` sensor
 - services: `nanowakeword.backup` (saves a zip under `/config/nanowakeword`,
@@ -229,6 +266,18 @@ zestaw modeli. Dodatek zawsze uruchamia API z tokenem (generowany
 automatycznie i wypisywany w logu dodatku, gdy `http_token` jest pusty);
 w compose API słucha tylko na `127.0.0.1`, a token ustawisz przez
 `NANOWAKEWORD_HTTP_TOKEN` w `.env`.
+
+### Hybryda satelita + serwer
+
+Na słabym sprzęcie (Raspberry Pi, Banana Pi) uruchom lekki model (np.
+quartznet) z obniżonym progiem i włączonym `--cascade` (`compose.satellite.yml`),
+a w opcjach integracji wskaż centralny serwer jako weryfikator ("Skonfiguruj
+centralny weryfikator"). Kandydackie detekcje satelity są potwierdzane przez
+ensemble na mocnej maszynie, zanim obudzą pipeline Voice Assist. Weryfikację
+wyłączysz jednym przełącznikiem w HA; gdy serwer centralny jest niedostępny,
+satelita domyślnie decyduje sam. Wszystkie ustawienia (progi, trigger level,
+cascade, VAD, nagrywanie detekcji) zmienisz encjami switch/number w HA — bez
+terminala.
 
 ### Strojenie progów
 

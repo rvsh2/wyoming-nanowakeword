@@ -43,6 +43,22 @@ The API always requires a bearer token. If the `http_token` option is empty,
 a persistent token is generated and printed in the add-on log — you will need
 it when setting up the HACS integration.
 
+## Runtime settings from Home Assistant
+
+Once the NanoWakeWord HACS integration is connected, thresholds, trigger
+level, refractory time, VAD, cascade, audio capture and hybrid verification
+are all adjustable from Home Assistant (switch/number entities and the
+integration's Configure menu). Those changes are persisted in
+`/share/nanowakeword/settings.json` and win over the add-on options above on
+the next start.
+
+## Hybrid satellite + server
+
+Satellites with weak CPUs can run a light model locally and have this add-on
+confirm every candidate with its ensemble: on the satellite's integration
+entry choose Configure -> "Configure central verifier" and point it at this
+add-on's API (port 10401, token from the log).
+
 ## Tuning tips
 
 - Missed detections: lower `threshold` (or the per-model/member thresholds in

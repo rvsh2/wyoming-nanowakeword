@@ -1,0 +1,48 @@
+# Hybrid satellite: a light wake word model triggers locally (low threshold)
+# and every candidate is confirmed by the central server's ensemble before
+# the Voice Assist pipeline wakes up.
+#
+# Usage on the satellite (e.g. Banana Pi / Raspberry Pi, arm64):
+#   1. Put the light model in ./data (e.g. agata_quartznet_v1.onnx and its
+#      *_lite.onnx cascade gate).
+#   2. docker compose -f compose.satellite.yml up -d
+#   3. Point wyoming-satellite's wake word service at tcp://localhost:10400.
+#   4. Add the NanoWakeWord integration in Home Assistant for this host and
+#      set the central verifier under Configure -> "Configure central
+#      verifier" — or pre-set it below with --verify-url/--verify-token.
+#
+# Everything (thresholds, cascade, verification on/off) is configurable at
+# runtime from Home Assistant.
+
+services:
+  wyoming-nanowakeword-satellite:
+    container_name: wyoming-nanowakeword-satellite
+    image: ghcr.io/rvsh2/wyoming-nanowakeword:latest
+    restart: unless-stopped
+    ports:
+      - "10400:10400"
+      - "10401:10401"
+    volumes:
+      - ./data:/data
+    command:
+      - wyoming-nanowakeword
+      - --uri
+      - tcp://0.0.0.0:10400
+      - --model-dir
+      - /data
+      - --threshold
+      - "0.7"          # deliberately low: the central ensemble has the final say
+      - --cascade      # the _lite gate keeps idle CPU near zero
+      - --zeroconf
+      - nanoWakeWord-satellite
+      - --http-port
+      - "10401"
+      - --http-token
+      - ${NANOWAKEWORD_HTTP_TOKEN:?set a token in .env}
+      # Central verifier (can also be configured later from Home Assistant):
+      # - --verify-url
+      # - http://192.168.1.35:10401
+      # - --verify-token
+      # - <central server token>
+      # - --verify-model
+      # - agata

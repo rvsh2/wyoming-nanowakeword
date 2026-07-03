@@ -13,6 +13,7 @@ from wyoming.server import AsyncServer, AsyncTcpServer
 from . import __version__
 from .handler import NanoWakeWordEventHandler
 from .interpreters import InterpreterManager
+from .settings import ServerSettings, load_settings_overlay
 from .state import State
 
 _LOGGER = logging.getLogger(__name__)
@@ -84,6 +85,19 @@ async def main() -> None:
         help="Bearer token required by the HTTP model management API",
     )
     parser.add_argument(
+        "--verify-url",
+        help="Base URL of a central wyoming-nanowakeword HTTP API that "
+        "verifies candidate detections (hybrid satellite + server)",
+    )
+    parser.add_argument(
+        "--verify-token",
+        help="Bearer token for the verification server",
+    )
+    parser.add_argument(
+        "--verify-model",
+        help="Wake word id on the verification server (default: same id)",
+    )
+    parser.add_argument(
         "--capture-dir",
         help="Save a WAV of the audio leading up to each detection here "
         "(training data; disabled unless set)",
@@ -120,6 +134,22 @@ async def main() -> None:
 
     model_dirs = [Path(model_dir) for model_dir in args.model_dir]
     state = State(model_dirs=model_dirs, default_model=args.default_model)
+    state.settings = ServerSettings(
+        threshold=args.threshold,
+        trigger_level=args.trigger_level,
+        refractory_seconds=args.refractory_seconds,
+        vad_threshold=args.vad_threshold,
+        cascade=args.cascade,
+        gate_threshold=args.gate_threshold,
+        capture=bool(args.capture_dir),
+        verify=bool(args.verify_url),
+        verify_url=args.verify_url or "",
+        verify_token=args.verify_token or "",
+        verify_model=args.verify_model or "",
+    )
+    if model_dirs:
+        # Settings changed from Home Assistant win over CLI defaults.
+        load_settings_overlay(state.settings, model_dirs[0])
     try:
         state.refresh()
     except Exception:
@@ -142,12 +172,7 @@ async def main() -> None:
             state.get_default_model_id(),
         )
 
-    interpreter_manager = InterpreterManager(
-        state,
-        cascade=args.cascade,
-        gate_threshold=args.gate_threshold,
-        vad_threshold=args.vad_threshold,
-    )
+    interpreter_manager = InterpreterManager(state)
     default_model_id = state.get_default_model_id()
     if default_model_id:
         # Preload the default wake word so the first Detect answers instantly.
@@ -200,12 +225,6 @@ async def main() -> None:
         await server.run(
             partial(
                 NanoWakeWordEventHandler,
-                threshold=args.threshold,
-                trigger_level=args.trigger_level,
-                refractory_seconds=args.refractory_seconds,
-                vad_threshold=args.vad_threshold,
-                cascade=args.cascade,
-                gate_threshold=args.gate_threshold,
                 state=state,
                 interpreter_manager=interpreter_manager,
                 capture_dir=Path(args.capture_dir) if args.capture_dir else None,

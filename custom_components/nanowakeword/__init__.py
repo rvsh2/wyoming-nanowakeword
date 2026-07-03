@@ -26,7 +26,13 @@ from .const import CONF_TOKEN, DOMAIN, SIGNAL_DETECTION
 from .coordinator import NanoWakeWordCoordinator
 from .services import async_setup_services
 
-PLATFORMS = [Platform.BUTTON, Platform.EVENT, Platform.SENSOR]
+PLATFORMS = [
+    Platform.BUTTON,
+    Platform.EVENT,
+    Platform.NUMBER,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 _LOGGER = logging.getLogger(__name__)
 

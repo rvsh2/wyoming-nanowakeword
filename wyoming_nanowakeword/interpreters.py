@@ -28,15 +28,21 @@ class InterpreterManager:
         self,
         state: State,
         *,
-        cascade: bool = False,
-        gate_threshold: float = 0.3,
-        vad_threshold: float = 0.0,
+        cascade: bool | None = None,
+        gate_threshold: float | None = None,
+        vad_threshold: float | None = None,
         factory: Callable[..., Any] | None = None,
     ) -> None:
         self.state = state
-        self.cascade = cascade
-        self.gate_threshold = gate_threshold
-        self.vad_threshold = vad_threshold
+        # Explicit constructor values seed the runtime settings; afterwards
+        # the settings object is the single source of truth (it can change
+        # at runtime through the HTTP API).
+        if cascade is not None:
+            state.settings.cascade = cascade
+        if gate_threshold is not None:
+            state.settings.gate_threshold = gate_threshold
+        if vad_threshold is not None:
+            state.settings.vad_threshold = vad_threshold
 
         if factory is None:
             from nanowakeword.interpreter.nanointerpreter import NanoInterpreter
@@ -114,16 +120,17 @@ class InterpreterManager:
         if backing_entry.path is None:
             raise ValueError(f"Model {model_id!r} does not have an ONNX path")
 
+        settings = self.state.settings
         load_kwargs: dict[str, Any] = {
             "model": str(backing_entry.path),
-            "cascade": self.cascade,
-            "gate_threshold": self.gate_threshold,
+            "cascade": settings.cascade,
+            "gate_threshold": settings.gate_threshold,
         }
-        if self.cascade and backing_entry.gate_path is not None:
+        if settings.cascade and backing_entry.gate_path is not None:
             # Pass the discovered <model>_lite.onnx explicitly so cascade
             # does not depend on the interpreter's own directory scan.
             load_kwargs["gate_model"] = str(backing_entry.gate_path)
-        if self.vad_threshold > 0:
-            load_kwargs["vad_threshold"] = self.vad_threshold
+        if settings.vad_threshold > 0:
+            load_kwargs["vad_threshold"] = settings.vad_threshold
 
         return self.factory(**load_kwargs)

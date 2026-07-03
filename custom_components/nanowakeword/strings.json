@@ -43,7 +43,8 @@
           "delete_model": "Delete a model file",
           "restore_backup": "Restore a backup",
           "restore_saved": "Restore a saved backup",
-          "test_recording": "Test a recording"
+          "test_recording": "Test a recording",
+          "configure_verifier": "Configure central verifier (hybrid)"
         }
       },
       "upload_model": {
@@ -82,6 +83,15 @@
           "model": "Wake word",
           "recording": "Recording (.wav)"
         }
+      },
+      "configure_verifier": {
+        "title": "Central verifier",
+        "description": "Hybrid satellite + server: candidate detections from this server are confirmed by another wyoming-nanowakeword instance (e.g. an ensemble on a stronger machine) before waking the pipeline. Leave the URL empty to disable. Use the Verification switch to toggle without losing the configuration. {error}",
+        "data": {
+          "verify_url": "Verifier URL (e.g. http://192.168.1.35:10401)",
+          "verify_token": "Verifier API token (leave empty to keep current)",
+          "verify_model": "Wake word id on the verifier (empty = same id)"
+        }
       }
     },
     "error": {
@@ -89,7 +99,8 @@
       "upload_failed": "The server rejected the upload.",
       "delete_failed": "The server rejected the deletion.",
       "restore_failed": "The server rejected the restore.",
-      "test_failed": "The server could not score the recording."
+      "test_failed": "The server could not score the recording.",
+      "settings_failed": "The server rejected the settings change."
     },
     "abort": {
       "not_loaded": "The NanoWakeWord entry is not loaded.",
@@ -131,6 +142,37 @@
             }
           }
         }
+      }
+    },
+    "switch": {
+      "verification": {
+        "name": "Server verification"
+      },
+      "cascade": {
+        "name": "Cascade (lite gate models)"
+      },
+      "capture": {
+        "name": "Capture detection audio"
+      }
+    },
+    "number": {
+      "threshold": {
+        "name": "Detection threshold"
+      },
+      "trigger_level": {
+        "name": "Trigger level"
+      },
+      "refractory_seconds": {
+        "name": "Refractory seconds"
+      },
+      "vad_threshold": {
+        "name": "VAD threshold"
+      },
+      "gate_threshold": {
+        "name": "Cascade gate threshold"
+      },
+      "verify_timeout": {
+        "name": "Verification timeout"
       }
     }
   },

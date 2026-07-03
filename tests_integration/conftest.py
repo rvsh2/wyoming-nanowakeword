@@ -60,6 +60,31 @@ def mock_client() -> Generator[MagicMock, None, None]:
             }
         }
     )
+    settings_state = {
+        "threshold": 0.95,
+        "trigger_level": 1,
+        "refractory_seconds": 2.0,
+        "vad_threshold": 0.0,
+        "cascade": False,
+        "gate_threshold": 0.3,
+        "capture": False,
+        "verify": False,
+        "verify_url": "",
+        "verify_token": False,
+        "verify_model": "",
+        "verify_timeout": 3.0,
+        "verify_fail_open": True,
+    }
+
+    async def _get_settings() -> dict[str, Any]:
+        return dict(settings_state)
+
+    async def _patch_settings(changes: dict[str, Any]) -> dict[str, Any]:
+        settings_state.update(changes)
+        return dict(settings_state)
+
+    client.get_settings = MagicMock(side_effect=_get_settings)
+    client.patch_settings = MagicMock(side_effect=_patch_settings)
     client.backup = AsyncMock(return_value=b"zip-bytes")
     client.restore = AsyncMock(return_value={})
     client.upload_model = AsyncMock(return_value={})

@@ -34,6 +34,9 @@ from .const import (
     CONF_MODEL_FILE,
     CONF_RECORDING,
     CONF_TOKEN,
+    CONF_VERIFY_MODEL,
+    CONF_VERIFY_TOKEN,
+    CONF_VERIFY_URL,
     DEFAULT_PORT,
     DOMAIN,
 )
@@ -177,9 +180,66 @@ class NanoWakeWordOptionsFlow(OptionsFlow):
                 "upload_model",
                 "delete_model",
                 "test_recording",
+                "configure_verifier",
                 "restore_saved",
                 "restore_backup",
             ],
+        )
+
+    async def async_step_configure_verifier(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Hybrid satellite + server: point this server at a central verifier."""
+
+        errors: dict[str, str] = {}
+        placeholders: dict[str, str] = {"error": ""}
+        settings = (
+            self.config_entry.runtime_data.coordinator.data or {}
+        ).get("settings") or {}
+
+        if user_input is not None:
+            url = user_input.get(CONF_VERIFY_URL, "").strip()
+            changes: dict[str, Any] = {
+                "verify_url": url,
+                "verify_model": user_input.get(CONF_VERIFY_MODEL, "").strip(),
+                # A URL means the user wants verification; clearing it
+                # disables the whole feature.
+                "verify": bool(url),
+            }
+            if token := user_input.get(CONF_VERIFY_TOKEN, "").strip():
+                changes["verify_token"] = token
+
+            try:
+                await self.config_entry.runtime_data.coordinator.async_apply_settings(
+                    changes
+                )
+            except NanoWakeWordApiError as err:
+                errors["base"] = "settings_failed"
+                placeholders["error"] = str(err)
+            else:
+                return self._async_finish()
+
+        return self.async_show_form(
+            step_id="configure_verifier",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_VERIFY_URL,
+                        description={
+                            "suggested_value": settings.get("verify_url", "")
+                        },
+                    ): str,
+                    vol.Optional(CONF_VERIFY_TOKEN): str,
+                    vol.Optional(
+                        CONF_VERIFY_MODEL,
+                        description={
+                            "suggested_value": settings.get("verify_model", "")
+                        },
+                    ): str,
+                }
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_test_recording(

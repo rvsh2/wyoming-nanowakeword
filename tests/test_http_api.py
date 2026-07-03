@@ -361,6 +361,34 @@ async def test_events_stream_delivers_detections(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_settings_endpoint_updates_and_persists(tmp_path: Path) -> None:
+    (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
+
+    async with _client(tmp_path) as (client, state):
+        current = await (await client.get("/api/settings")).json()
+        assert current["threshold"] == 0.95
+        assert current["verify"] is False
+
+        generation_before = state.generation
+        response = await client.patch(
+            "/api/settings",
+            json={"threshold": 0.7, "cascade": True, "verify": True},
+        )
+        assert response.status == 200
+        updated = await response.json()
+        assert updated["threshold"] == 0.7
+        assert updated["cascade"] is True
+        assert state.settings.threshold == 0.7
+        assert state.generation == generation_before + 1
+        assert (tmp_path / "settings.json").is_file()
+
+        response = await client.patch("/api/settings", json={"nope": 1})
+        assert response.status == 400
+        response = await client.patch("/api/settings", json=["not", "a", "dict"])
+        assert response.status == 400
+
+
+@pytest.mark.asyncio
 async def test_token_is_enforced_when_configured(tmp_path: Path) -> None:
     (tmp_path / "hey_home.onnx").write_bytes(b"onnx")
 

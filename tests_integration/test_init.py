@@ -229,3 +229,65 @@ async def test_reload_models_service_calls_server(
     await hass.services.async_call(DOMAIN, "reload_models", {}, blocking=True)
 
     mock_client.reload.assert_awaited_once()
+
+
+async def test_setting_switch_patches_server(
+    hass: HomeAssistant, mock_client: MagicMock
+) -> None:
+    entry = await _setup_entry(hass)
+    registry = er.async_get(hass)
+
+    switch = registry.async_get_entity_id(
+        "switch", DOMAIN, f"{entry.entry_id}_verification"
+    )
+    assert switch is not None
+    assert hass.states.get(switch).state == "off"
+
+    await hass.services.async_call(
+        "switch", "turn_on", {"entity_id": switch}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+    mock_client.patch_settings.assert_called_with({"verify": True})
+    assert hass.states.get(switch).state == "on"
+
+    cascade = registry.async_get_entity_id(
+        "switch", DOMAIN, f"{entry.entry_id}_cascade"
+    )
+    assert cascade is not None
+
+
+async def test_setting_number_patches_server(
+    hass: HomeAssistant, mock_client: MagicMock
+) -> None:
+    entry = await _setup_entry(hass)
+    registry = er.async_get(hass)
+
+    number = registry.async_get_entity_id(
+        "number", DOMAIN, f"{entry.entry_id}_threshold"
+    )
+    assert number is not None
+    assert float(hass.states.get(number).state) == 0.95
+
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": number, "value": 0.7},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+    mock_client.patch_settings.assert_called_with({"threshold": 0.7})
+    assert float(hass.states.get(number).state) == 0.7
+
+    trigger = registry.async_get_entity_id(
+        "number", DOMAIN, f"{entry.entry_id}_trigger_level"
+    )
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": trigger, "value": 2},
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    mock_client.patch_settings.assert_called_with({"trigger_level": 2})

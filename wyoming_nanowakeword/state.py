@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import ModelEntry, discover_models
+from .settings import ServerSettings
 
 # A score stays "peak" for this long unless a higher one arrives; after the
 # window it decays to the current score. Gives threshold tuning a readable
@@ -22,6 +23,7 @@ class State:
 
     model_dirs: list[Path]
     default_model: str | None = None
+    settings: ServerSettings = field(default_factory=ServerSettings)
     models: dict[str, ModelEntry] = field(default_factory=dict)
     backing_models: dict[str, ModelEntry] = field(default_factory=dict)
     # Bumped on every refresh so pooled interpreters and long-lived clients
@@ -85,6 +87,8 @@ class State:
             stats["peak"] = score
             stats["peak_at"] = now
 
+        stats.setdefault("rejections", 0)
+
         if inference_ms is not None:
             previous = stats.get("avg_ms")
             # Exponential moving average keeps the number stable but current.
@@ -112,9 +116,19 @@ class State:
                 continue
 
     def record_detection(self, model_id: str) -> None:
+        stats = self._stats_for(model_id)
+        stats["detections"] += 1
+
+    def record_rejection(self, model_id: str) -> None:
+        """A candidate detection that the remote verifier refused."""
+
+        stats = self._stats_for(model_id)
+        stats["rejections"] = stats.get("rejections", 0) + 1
+
+    def _stats_for(self, model_id: str) -> dict[str, Any]:
         stats = self.scores.get(model_id)
         if stats is None:
             self.update_score(model_id, 0.0)
             stats = self.scores[model_id]
 
-        stats["detections"] += 1
+        return stats

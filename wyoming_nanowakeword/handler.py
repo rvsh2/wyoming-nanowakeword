@@ -50,12 +50,12 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
     def __init__(
         self,
         *args: Any,
-        threshold: float,
-        trigger_level: int,
-        refractory_seconds: float,
-        vad_threshold: float,
-        cascade: bool,
-        gate_threshold: float,
+        threshold: float | None = None,
+        trigger_level: int | None = None,
+        refractory_seconds: float | None = None,
+        vad_threshold: float | None = None,
+        cascade: bool | None = None,
+        gate_threshold: float | None = None,
         state: State,
         interpreter_factory: Any | None = None,
         interpreter_manager: InterpreterManager | None = None,
@@ -69,10 +69,21 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         super().__init__(*args, **kwargs)
 
         self.client_id = str(time.monotonic_ns())
-        self.threshold = threshold
-        self.trigger_level = trigger_level
-        self.refractory_seconds = refractory_seconds
         self.state = state
+
+        # Explicit constructor values seed the runtime settings; from then on
+        # state.settings is the single source of truth (changeable via the
+        # HTTP API, i.e. from Home Assistant).
+        settings = state.settings
+        if threshold is not None:
+            settings.threshold = threshold
+        if trigger_level is not None:
+            settings.trigger_level = trigger_level
+        if refractory_seconds is not None:
+            settings.refractory_seconds = refractory_seconds
+        if capture_dir is not None:
+            settings.capture = True
+
         self.converter = AudioChunkConverter(rate=16000, width=2, channels=1)
         self.detectors: dict[str, Detector] = {}
         self.audio_timestamp = 0
@@ -82,6 +93,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         self._capture_max_samples = int(capture_seconds * 16000)
         self._capture_buffer: deque[np.ndarray] = deque()
         self._capture_samples = 0
+        self._verify_session: Any | None = None
 
         state.clients += 1
 
@@ -96,6 +108,19 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
         self.manager = interpreter_manager
         _LOGGER.debug("Client connected: %s", self.client_id)
+
+    @property
+    def _effective_capture_dir(self) -> Path | None:
+        if self.capture_dir is not None:
+            return self.capture_dir
+        if self.state.model_dirs:
+            return self.state.model_dirs[0] / "captures"
+        return None
+
+    @property
+    def _buffer_needed(self) -> bool:
+        settings = self.state.settings
+        return settings.capture or (settings.verify and bool(settings.verify_url))
 
     async def handle_event(self, event: Event) -> bool:
         if Describe.is_type(event.type):
@@ -119,6 +144,9 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         self.state.clients = max(0, self.state.clients - 1)
         self._release_detectors(self.detectors)
         self.detectors = {}
+        if self._verify_session is not None:
+            await self._verify_session.close()
+            self._verify_session = None
         _LOGGER.debug("Client disconnected: %s", self.client_id)
 
     async def _handle_detect(self, detect: Detect) -> None:
@@ -136,13 +164,16 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 self.manager.acquire_for_entry, model_entry
             )
             metadata = model_entry.metadata
+            settings = self.state.settings
             threshold = (
-                metadata.threshold if metadata.threshold is not None else self.threshold
+                metadata.threshold
+                if metadata.threshold is not None
+                else settings.threshold
             )
             trigger_level = (
                 metadata.trigger_level
                 if metadata.trigger_level is not None
-                else self.trigger_level
+                else settings.trigger_level
             )
             self.detectors[model_id] = Detector(
                 id=model_id,
@@ -197,12 +228,13 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         chunk = self.converter.convert(audio_chunk)
         audio = np.frombuffer(chunk.audio, dtype=np.int16)
 
-        if self.capture_dir is not None:
+        if self._buffer_needed:
             self._capture_append(audio)
 
+        refractory_seconds = self.state.settings.refractory_seconds
         for detector in self.detectors.values():
             skip_detector = (detector.last_triggered is not None) and (
-                (time.monotonic() - detector.last_triggered) < self.refractory_seconds
+                (time.monotonic() - detector.last_triggered) < refractory_seconds
             )
 
             # ONNX inference is blocking (and releases the GIL); run it off
@@ -222,9 +254,32 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             if detector.triggers_left > 0:
                 continue
 
-            detector.is_detected = True
             detector.last_triggered = time.monotonic()
             detector.triggers_left = detector.trigger_level
+
+            # Hybrid satellite + server: confirm the candidate with the
+            # central verifier (e.g. an ensemble) before waking the pipeline.
+            verified = await self._verify_candidate(detector, score)
+            if not verified:
+                self.state.record_rejection(detector.id)
+                self.state.publish(
+                    {
+                        "type": "rejected",
+                        "model": detector.id,
+                        "score": round(score, 4),
+                        "timestamp": self.audio_timestamp,
+                    }
+                )
+                for interpreter in detector.interpreters.values():
+                    interpreter.reset()
+                _LOGGER.info(
+                    "Candidate %s (score %.3f) rejected by verifier",
+                    detector.id,
+                    score,
+                )
+                continue
+
+            detector.is_detected = True
             self.state.record_detection(detector.id)
             self.state.publish(
                 {
@@ -237,7 +292,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             await self.write_event(
                 Detection(name=detector.id, timestamp=self.audio_timestamp).event()
             )
-            if self.capture_dir is not None:
+            if self.state.settings.capture:
                 await asyncio.to_thread(self._write_capture, detector.id)
             for interpreter in detector.interpreters.values():
                 interpreter.reset()
@@ -262,14 +317,14 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         the directory is training data for the next model version.
         """
 
-        if not self._capture_buffer:
+        capture_dir = self._effective_capture_dir
+        if not self._capture_buffer or capture_dir is None:
             return
 
-        assert self.capture_dir is not None
         samples = np.concatenate(list(self._capture_buffer))
-        self.capture_dir.mkdir(parents=True, exist_ok=True)
+        capture_dir.mkdir(parents=True, exist_ok=True)
         timestamp = time.strftime("%Y%m%d-%H%M%S")
-        path = self.capture_dir / f"{model_id}-{timestamp}-{self.client_id[-6:]}.wav"
+        path = capture_dir / f"{model_id}-{timestamp}-{self.client_id[-6:]}.wav"
 
         with wave.open(str(path), "wb") as wav_file:
             wav_file.setnchannels(1)
@@ -278,9 +333,91 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             wav_file.writeframes(samples.tobytes())
 
         _LOGGER.info("Captured detection audio: %s", path.name)
-        captures = sorted(self.capture_dir.glob("*.wav"))
+        captures = sorted(capture_dir.glob("*.wav"))
         for old in captures[: max(0, len(captures) - self.capture_keep)]:
             old.unlink(missing_ok=True)
+
+    async def _verify_candidate(self, detector: Detector, score: float) -> bool:
+        """Ask the configured central verifier to confirm a candidate.
+
+        Used in the hybrid satellite + server setup: a light model on the
+        satellite triggers cheaply (low threshold), and the buffered audio is
+        confirmed by a stronger model/ensemble on the central server before
+        the Wyoming Detection wakes the Voice Assist pipeline.
+        """
+
+        settings = self.state.settings
+        if not settings.verify or not settings.verify_url:
+            return True
+
+        if not self._capture_buffer:
+            _LOGGER.warning("Verification enabled but no buffered audio yet")
+            return settings.verify_fail_open
+
+        wav_bytes = await asyncio.to_thread(self._buffer_as_wav)
+
+        import aiohttp
+
+        if self._verify_session is None:
+            self._verify_session = aiohttp.ClientSession()
+
+        url = settings.verify_url.rstrip("/")
+        if not url.endswith("/api/test"):
+            url = f"{url}/api/test"
+        model = settings.verify_model or detector.id
+        headers = (
+            {"Authorization": f"Bearer {settings.verify_token}"}
+            if settings.verify_token
+            else {}
+        )
+        form = aiohttp.FormData()
+        form.add_field("file", wav_bytes, filename="candidate.wav")
+
+        try:
+            started = time.monotonic()
+            async with self._verify_session.post(
+                f"{url}?model={model}",
+                data=form,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=settings.verify_timeout),
+            ) as response:
+                if response.status >= 400:
+                    raise RuntimeError(
+                        f"verifier returned {response.status}: "
+                        f"{(await response.text())[:200]}"
+                    )
+                result = await response.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as err:
+            _LOGGER.warning(
+                "Verifier unreachable (%s); %s candidate %s",
+                err,
+                "accepting" if settings.verify_fail_open else "rejecting",
+                detector.id,
+            )
+            return settings.verify_fail_open
+
+        verified = bool(result.get("would_detect"))
+        _LOGGER.debug(
+            "Verifier %s candidate %s in %.0f ms (local %.3f, remote peak %.3f)",
+            "confirmed" if verified else "rejected",
+            detector.id,
+            (time.monotonic() - started) * 1000,
+            score,
+            result.get("peak", 0.0),
+        )
+        return verified
+
+    def _buffer_as_wav(self) -> bytes:
+        import io
+
+        samples = np.concatenate(list(self._capture_buffer))
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(16000)
+            wav_file.writeframes(samples.tobytes())
+        return buffer.getvalue()
 
     async def _handle_audio_stop(self) -> None:
         if not any(detector.is_detected for detector in self.detectors.values()):
@@ -333,7 +470,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             scores[member.model] = score_from_result(result, member.model)
             self.state.update_score(member.model, scores[member.model], elapsed_ms)
 
-        fused = fuse_scores(detector.entry, scores, self.threshold)
+        fused = fuse_scores(detector.entry, scores, self.state.settings.threshold)
         self.state.update_score(detector.id, fused, total_ms)
         return fused
 

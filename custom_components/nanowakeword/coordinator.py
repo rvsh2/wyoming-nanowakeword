@@ -44,9 +44,16 @@ class NanoWakeWordCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             data = await self.client.models()
             scores = await self.client.scores()
+            settings = await self.client.get_settings()
         except NanoWakeWordAuthError as err:
             raise ConfigEntryAuthFailed from err
         except NanoWakeWordApiError as err:
             raise UpdateFailed(str(err)) from err
 
-        return {**data, "scores": scores.get("scores", {})}
+        return {**data, "scores": scores.get("scores", {}), "settings": settings}
+
+    async def async_apply_settings(self, changes: dict[str, Any]) -> None:
+        """Patch server settings and refresh entities immediately."""
+
+        await self.client.patch_settings(changes)
+        await self.async_request_refresh()

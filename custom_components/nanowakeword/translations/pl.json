@@ -43,7 +43,8 @@
           "delete_model": "Usuń plik modelu",
           "restore_backup": "Przywróć kopię zapasową",
           "restore_saved": "Przywróć zapisaną kopię",
-          "test_recording": "Przetestuj nagranie"
+          "test_recording": "Przetestuj nagranie",
+          "configure_verifier": "Skonfiguruj centralny weryfikator (hybryda)"
         }
       },
       "upload_model": {
@@ -82,6 +83,15 @@
           "model": "Wake word",
           "recording": "Nagranie (.wav)"
         }
+      },
+      "configure_verifier": {
+        "title": "Centralny weryfikator",
+        "description": "Hybryda satelita + serwer: kandydackie detekcje z tego serwera są potwierdzane przez inną instancję wyoming-nanowakeword (np. ensemble na mocniejszej maszynie), zanim obudzą pipeline. Zostaw URL pusty, aby wyłączyć. Przełącznikiem 'Weryfikacja serwerowa' włączasz/wyłączasz bez utraty konfiguracji. {error}",
+        "data": {
+          "verify_url": "URL weryfikatora (np. http://192.168.1.35:10401)",
+          "verify_token": "Token API weryfikatora (puste = bez zmian)",
+          "verify_model": "Id wake worda na weryfikatorze (puste = ten sam)"
+        }
       }
     },
     "error": {
@@ -89,7 +99,8 @@
       "upload_failed": "Serwer odrzucił wgrywany plik.",
       "delete_failed": "Serwer odrzucił usunięcie pliku.",
       "restore_failed": "Serwer odrzucił przywracanie kopii.",
-      "test_failed": "Serwer nie mógł ocenić nagrania."
+      "test_failed": "Serwer nie mógł ocenić nagrania.",
+      "settings_failed": "Serwer odrzucił zmianę ustawień."
     },
     "abort": {
       "not_loaded": "Wpis NanoWakeWord nie jest załadowany.",
@@ -131,6 +142,37 @@
             }
           }
         }
+      }
+    },
+    "switch": {
+      "verification": {
+        "name": "Weryfikacja serwerowa"
+      },
+      "cascade": {
+        "name": "Cascade (modele lite jako bramka)"
+      },
+      "capture": {
+        "name": "Nagrywanie audio detekcji"
+      }
+    },
+    "number": {
+      "threshold": {
+        "name": "Próg detekcji"
+      },
+      "trigger_level": {
+        "name": "Trigger level"
+      },
+      "refractory_seconds": {
+        "name": "Czas refrakcji (s)"
+      },
+      "vad_threshold": {
+        "name": "Próg VAD"
+      },
+      "gate_threshold": {
+        "name": "Próg bramki cascade"
+      },
+      "verify_timeout": {
+        "name": "Timeout weryfikacji (s)"
       }
     }
   },
