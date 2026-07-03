@@ -31,14 +31,18 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        base:
-          - ghcr.io/home-assistant/amd64-base-debian:bookworm
-          - ghcr.io/home-assistant/aarch64-base-debian:bookworm
+        include:
+          - base: ghcr.io/home-assistant/amd64-base-debian:bookworm
+            platform: linux/amd64
+          - base: ghcr.io/home-assistant/aarch64-base-debian:bookworm
+            platform: linux/arm64
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
       - name: Add-on Docker build
         run: |
           docker build \
+            --platform "${{ matrix.platform }}" \
             --build-arg BUILD_FROM="${{ matrix.base }}" \
             -f nanowakeword/Dockerfile \
             -t addon-wyoming-nanowakeword:test \

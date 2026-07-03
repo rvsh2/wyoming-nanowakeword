@@ -2,3 +2,10 @@ services:
   wyoming-nanowakeword:
     build: .
     image: local/wyoming-nanowakeword
+    # Attach to a pre-existing docker network instead of the compose default:
+    # networks:
+    #   - bridge-network
+#
+# networks:
+#   bridge-network:
+#     external: true

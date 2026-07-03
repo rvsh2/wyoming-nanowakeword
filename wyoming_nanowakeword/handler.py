@@ -118,6 +118,11 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
     def _handle_audio_start(self) -> None:
         self.audio_timestamp = 0
 
+        if not self.detectors:
+            # Detect is optional in the Wyoming wake protocol; fall back to
+            # the default model like wyoming-openwakeword does.
+            self._handle_detect(Detect())
+
         for detector in self.detectors.values():
             detector.is_detected = False
             detector.triggers_left = self.trigger_level
@@ -172,7 +177,22 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 for model_name in requested_names
                 if model_name in self.state.models
             ]
-            return sorted(set(model_ids))
+            unknown_names = [
+                model_name
+                for model_name in requested_names
+                if model_name not in self.state.models
+            ]
+            if unknown_names:
+                _LOGGER.warning(
+                    "Unknown wake word names requested: %s (available: %s)",
+                    ", ".join(unknown_names),
+                    ", ".join(sorted(self.state.models)) or "(none)",
+                )
+
+            if model_ids:
+                return sorted(set(model_ids))
+
+            _LOGGER.warning("No requested wake word matched; using default model")
 
         default_model_id = self.state.get_default_model_id()
         return [default_model_id] if default_model_id else []
@@ -253,13 +273,17 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         ]
 
         primary_score = scores.get(primary.model, 0.0)
-        primary_threshold = primary.threshold or self.threshold
+        primary_threshold = (
+            primary.threshold if primary.threshold is not None else self.threshold
+        )
         if primary_score <= primary_threshold:
             return 0.0
 
         for verifier in verifiers:
             verifier_score = scores.get(verifier.model, 0.0)
-            verifier_threshold = verifier.threshold or self.threshold
+            verifier_threshold = (
+                verifier.threshold if verifier.threshold is not None else self.threshold
+            )
             if verifier_score <= verifier_threshold:
                 return 0.0
 

@@ -10,8 +10,6 @@ services:
     restart: unless-stopped
     ports:
       - "0.0.0.0:10400:10400"
-    networks:
-      - bridge-network
     volumes:
       # Prepared Agata models (E-Branchformer + alternatives) live in ./data.
       - ./data:/data:ro
@@ -25,7 +23,3 @@ services:
       - agata
       - --zeroconf
       - nanoWakeWord
-
-networks:
-  bridge-network:
-    external: true

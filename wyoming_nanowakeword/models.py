@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+_LOGGER = logging.getLogger(__name__)
 
 _VERSION_SUFFIX = re.compile(r"^(?P<name>.+?)_v[0-9][0-9A-Za-z_.-]*$")
 
@@ -189,9 +192,21 @@ def discover_models(model_dirs: list[Path]) -> dict[str, ModelEntry]:
         ensembles.update(load_ensemble_specs(model_dir))
 
         for model_path in sorted(model_dir.glob("*.onnx")):
-            model_id = normalize_model_id(model_path)
             if model_path.stem.endswith("_lite"):
-                gate_paths.setdefault(model_id, model_path)
+                # Key gates by the exact main-model stem so a gate from one
+                # model version can never attach to a different version.
+                gate_paths.setdefault(model_path.stem[: -len("_lite")], model_path)
+                continue
+
+            model_id = normalize_model_id(model_path)
+            existing_path = discovered.get(model_id)
+            if existing_path is not None and existing_path != model_path:
+                _LOGGER.warning(
+                    "Ignoring %s: wake word id %r is already provided by %s",
+                    model_path,
+                    model_id,
+                    existing_path,
+                )
                 continue
 
             discovered.setdefault(model_id, model_path)
@@ -201,12 +216,18 @@ def discover_models(model_dirs: list[Path]) -> dict[str, ModelEntry]:
             id=model_id,
             path=model_path,
             metadata=metadata.get(model_id, ModelMetadata()),
-            gate_path=gate_paths.get(model_id),
+            gate_path=gate_paths.get(model_path.stem),
         )
         for model_id, model_path in discovered.items()
     }
 
     for model_id, (fusion, members) in ensembles.items():
+        if model_id in discovered:
+            raise ValueError(
+                f"Ensemble {model_id!r} conflicts with model file "
+                f"{discovered[model_id].name}; rename the file or the ensemble"
+            )
+
         missing_members = [
             member.model for member in members if member.model not in discovered
         ]
