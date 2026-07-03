@@ -259,7 +259,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
             # Hybrid satellite + server: confirm the candidate with the
             # central verifier (e.g. an ensemble) before waking the pipeline.
-            verified = await self._verify_candidate(detector, score)
+            verified, remote_peak = await self._verify_candidate(detector, score)
             if not verified:
                 self.state.record_rejection(detector.id)
                 self.state.publish(
@@ -267,15 +267,24 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                         "type": "rejected",
                         "model": detector.id,
                         "score": round(score, 4),
+                        "remote_peak": remote_peak,
                         "timestamp": self.audio_timestamp,
                     }
                 )
+                if self.state.settings.capture:
+                    # Rejected candidates are the most interesting audio of
+                    # all: false positives of the light model, or genuine
+                    # wake words the verifier thresholds miss.
+                    await asyncio.to_thread(
+                        self._write_capture, f"{detector.id}-rejected"
+                    )
                 for interpreter in detector.interpreters.values():
                     interpreter.reset()
                 _LOGGER.info(
-                    "Candidate %s (score %.3f) rejected by verifier",
+                    "Candidate %s (local %.3f) rejected by verifier (peak %s)",
                     detector.id,
                     score,
+                    remote_peak,
                 )
                 continue
 
@@ -337,22 +346,26 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         for old in captures[: max(0, len(captures) - self.capture_keep)]:
             old.unlink(missing_ok=True)
 
-    async def _verify_candidate(self, detector: Detector, score: float) -> bool:
+    async def _verify_candidate(
+        self, detector: Detector, score: float
+    ) -> tuple[bool, float | None]:
         """Ask the configured central verifier to confirm a candidate.
 
         Used in the hybrid satellite + server setup: a light model on the
         satellite triggers cheaply (low threshold), and the buffered audio is
         confirmed by a stronger model/ensemble on the central server before
         the Wyoming Detection wakes the Voice Assist pipeline.
+
+        Returns (verified, verifier peak score or None).
         """
 
         settings = self.state.settings
         if not settings.verify or not settings.verify_url:
-            return True
+            return True, None
 
         if not self._capture_buffer:
             _LOGGER.warning("Verification enabled but no buffered audio yet")
-            return settings.verify_fail_open
+            return settings.verify_fail_open, None
 
         wav_bytes = await asyncio.to_thread(self._buffer_as_wav)
 
@@ -394,18 +407,19 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 "accepting" if settings.verify_fail_open else "rejecting",
                 detector.id,
             )
-            return settings.verify_fail_open
+            return settings.verify_fail_open, None
 
         verified = bool(result.get("would_detect"))
+        remote_peak = result.get("peak")
         _LOGGER.debug(
-            "Verifier %s candidate %s in %.0f ms (local %.3f, remote peak %.3f)",
+            "Verifier %s candidate %s in %.0f ms (local %.3f, remote peak %s)",
             "confirmed" if verified else "rejected",
             detector.id,
             (time.monotonic() - started) * 1000,
             score,
-            result.get("peak", 0.0),
+            remote_peak,
         )
-        return verified
+        return verified, remote_peak
 
     def _buffer_as_wav(self) -> bytes:
         import io

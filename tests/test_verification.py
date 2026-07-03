@@ -98,6 +98,7 @@ async def test_confirmed_candidate_emits_detection(tmp_path: Path) -> None:
 async def test_rejected_candidate_is_suppressed(tmp_path: Path) -> None:
     async with _verifier(would_detect=False) as (url, _requests):
         handler, collector = await _handler_with_verify(tmp_path, url)
+        handler.state.settings.capture = True
         queue = handler.state.subscribe()
         await _stream(handler)
         await handler.disconnect()
@@ -105,8 +106,11 @@ async def test_rejected_candidate_is_suppressed(tmp_path: Path) -> None:
     assert not any(Detection.is_type(event.type) for event in collector.events)
     event = queue.get_nowait()
     assert event["type"] == "rejected"
+    assert event["remote_peak"] == 0.5
     assert handler.state.scores["hey_home"]["rejections"] == 1
     assert handler.state.scores["hey_home"]["detections"] == 0
+    # Rejected audio is captured for tuning/training.
+    assert list((tmp_path / "captures").glob("hey_home-rejected-*.wav"))
 
 
 @pytest.mark.asyncio

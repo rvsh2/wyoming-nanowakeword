@@ -22,10 +22,10 @@ models:
     members:
       - model: "agata_ebranchformer"
         role: "primary"
-        threshold: 0.95
+        threshold: 0.90
       - model: "agata_conformer"
         role: "verifier"
-        threshold: 0.85
+        threshold: 0.80
 
   # Hidden backing models (not shown as separate wake words in Home Assistant).
   agata_ebranchformer:
