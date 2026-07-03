@@ -37,7 +37,9 @@ class ServerSettings:
     verify_url: str = ""
     verify_token: str = ""
     verify_model: str = ""
-    verify_timeout: float = 3.0
+    # Verifier round-trip budget; with verify_fail_open this also bounds the
+    # extra wake-up latency an unreachable verifier can add.
+    verify_timeout: float = 1.0
     # When the verifier is unreachable: True = accept the detection anyway
     # (voice control keeps working), False = suppress it.
     verify_fail_open: bool = True

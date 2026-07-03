@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Lower hybrid-verification latency: `aiohttp` is imported at module load
+  instead of on the first candidate detection, and the default
+  `verify_timeout` dropped from 3.0 s to 1.0 s so an unreachable verifier
+  delays wake-ups by at most one second (fail-open still applies)
+
 ## 0.1.0 - 2026-07-04
 
 Initial release.

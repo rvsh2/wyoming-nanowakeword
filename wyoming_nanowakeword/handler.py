@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 import time
 import wave
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import aiohttp
 import numpy as np
 from wyoming.audio import AudioChunk, AudioChunkConverter, AudioStart, AudioStop
 from wyoming.event import Event
@@ -369,8 +371,6 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
         wav_bytes = await asyncio.to_thread(self._buffer_as_wav)
 
-        import aiohttp
-
         if self._verify_session is None:
             self._verify_session = aiohttp.ClientSession()
 
@@ -422,8 +422,6 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         return verified, remote_peak
 
     def _buffer_as_wav(self) -> bytes:
-        import io
-
         samples = np.concatenate(list(self._capture_buffer))
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
