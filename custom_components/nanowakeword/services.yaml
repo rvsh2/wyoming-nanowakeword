@@ -1,0 +1,54 @@
+backup:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: nanowakeword
+
+restore:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: nanowakeword
+    path:
+      required: true
+      example: "nanowakeword/nanowakeword-backup-20260703-120000.zip"
+      selector:
+        text:
+
+upload_model:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: nanowakeword
+    path:
+      required: true
+      example: "/share/models/agata_v2.onnx"
+      selector:
+        text:
+
+delete_model:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: nanowakeword
+    filename:
+      required: true
+      example: "agata_v1.onnx"
+      selector:
+        text:
+
+reload_models:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: nanowakeword

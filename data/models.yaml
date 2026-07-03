@@ -1,0 +1,46 @@
+# Wake word configuration for the Wyoming NanoWakeWord server.
+#
+# Exposes a single, clean wake word "agata" to Home Assistant as a quality-first
+# ENSEMBLE: E-Branchformer (best architecture available here) as the primary
+# detector, confirmed by Conformer (the second-best architecture) as a verifier.
+# A detection fires only when the primary passes its threshold AND the verifier
+# agrees, which suppresses false positives where the two architectures disagree.
+#
+# Transformer (the README's preferred verifier) is not present in data/, so
+# Conformer is used as the strongest available verifier.
+#
+# Thresholds below are sensible starting points; tune them against your own
+# recordings. Lower them if genuine "Agata" is missed, raise them if you get
+# false triggers.
+models:
+  agata:
+    phrase: "Agata"
+    language: "pl"
+    architecture: "ensemble:e_branchformer+conformer"
+    fusion: "primary_and_verifier"
+    version: "v1"
+    members:
+      - model: "agata_ebranchformer"
+        role: "primary"
+        threshold: 0.95
+      - model: "agata_conformer"
+        role: "verifier"
+        threshold: 0.85
+
+  # Hidden backing models (not shown as separate wake words in Home Assistant).
+  agata_ebranchformer:
+    hidden: true
+    architecture: "e_branchformer"
+    version: "v1"
+  agata_conformer:
+    hidden: true
+    architecture: "conformer"
+    version: "v1"
+  agata_quartznet:
+    hidden: true
+    architecture: "quartznet"
+    version: "v1"
+  agata_bcresnet:
+    hidden: true
+    architecture: "bcresnet"
+    version: "v5"

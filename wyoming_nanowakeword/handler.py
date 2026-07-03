@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from wyoming.server import AsyncEventHandler
 from wyoming.wake import Detect, Detection, NotDetected
 
 from . import __version__
+from .interpreters import InterpreterManager
 from .models import ModelEntry
 from .state import State
 
@@ -29,6 +31,8 @@ class Detector:
     entry: ModelEntry
     interpreters: dict[str, Any]
     triggers_left: int
+    # State.generation when the interpreters were acquired.
+    generation: int = 0
     is_detected: bool = False
     last_triggered: float | None = None
 
@@ -38,6 +42,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
     def __init__(
         self,
+        *args: Any,
         threshold: float,
         trigger_level: int,
         refractory_seconds: float,
@@ -46,29 +51,32 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         gate_threshold: float,
         state: State,
         interpreter_factory: Any | None = None,
-        *args: Any,
+        interpreter_manager: InterpreterManager | None = None,
         **kwargs: Any,
     ) -> None:
+        # *args carries (reader, writer) from wyoming's handler factory; keep our
+        # own params keyword-only so they never collide with those positionals.
         super().__init__(*args, **kwargs)
 
         self.client_id = str(time.monotonic_ns())
         self.threshold = threshold
         self.trigger_level = trigger_level
         self.refractory_seconds = refractory_seconds
-        self.vad_threshold = vad_threshold
-        self.cascade = cascade
-        self.gate_threshold = gate_threshold
         self.state = state
         self.converter = AudioChunkConverter(rate=16000, width=2, channels=1)
         self.detectors: dict[str, Detector] = {}
         self.audio_timestamp = 0
 
-        if interpreter_factory is None:
-            from nanowakeword.interpreter.nanointerpreter import NanoInterpreter
+        if interpreter_manager is None:
+            interpreter_manager = InterpreterManager(
+                state,
+                cascade=cascade,
+                gate_threshold=gate_threshold,
+                vad_threshold=vad_threshold,
+                factory=interpreter_factory,
+            )
 
-            interpreter_factory = NanoInterpreter.load_model
-
-        self.interpreter_factory = interpreter_factory
+        self.manager = interpreter_manager
         _LOGGER.debug("Client connected: %s", self.client_id)
 
     async def handle_event(self, event: Event) -> bool:
@@ -77,9 +85,9 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             return True
 
         if Detect.is_type(event.type):
-            self._handle_detect(Detect.from_event(event))
+            await self._handle_detect(Detect.from_event(event))
         elif AudioStart.is_type(event.type):
-            self._handle_audio_start()
+            await self._handle_audio_start()
         elif AudioChunk.is_type(event.type):
             await self._handle_audio_chunk(AudioChunk.from_event(event))
         elif AudioStop.is_type(event.type):
@@ -90,9 +98,11 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         return True
 
     async def disconnect(self) -> None:
+        self._release_detectors(self.detectors)
+        self.detectors = {}
         _LOGGER.debug("Client disconnected: %s", self.client_id)
 
-    def _handle_detect(self, detect: Detect) -> None:
+    async def _handle_detect(self, detect: Detect) -> None:
         model_ids = self._resolve_model_ids(detect.names or [])
 
         for model_id in model_ids:
@@ -100,21 +110,47 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 continue
 
             model_entry = self.state.models[model_id]
-            interpreters = self._load_interpreters(model_entry)
+            generation = self.state.generation
+            # ONNX session loading is blocking; keep the event loop free for
+            # the other clients' audio.
+            interpreters = await asyncio.to_thread(
+                self.manager.acquire_for_entry, model_entry
+            )
             self.detectors[model_id] = Detector(
                 id=model_id,
                 entry=model_entry,
                 interpreters=interpreters,
                 triggers_left=self.trigger_level,
+                generation=generation,
             )
 
-        for other_model_id in set(self.detectors) - set(model_ids):
-            self.detectors.pop(other_model_id)
+        removed = {
+            model_id: self.detectors.pop(model_id)
+            for model_id in set(self.detectors) - set(model_ids)
+        }
+        self._release_detectors(removed)
 
         _LOGGER.debug("Loaded models: %s", sorted(self.detectors))
 
-    def _handle_audio_start(self) -> None:
+    async def _handle_audio_start(self) -> None:
         self.audio_timestamp = 0
+
+        current_generation = self.state.generation
+        if self.detectors and any(
+            detector.generation != current_generation
+            for detector in self.detectors.values()
+        ):
+            # Model files changed (HTTP API upload/restore or re-scan):
+            # reload the same wake words from the new registry.
+            names = sorted(self.detectors)
+            self._release_detectors(self.detectors)
+            self.detectors = {}
+            await self._handle_detect(Detect(names=names))
+
+        if not self.detectors:
+            # Detect is optional in the Wyoming wake protocol; fall back to
+            # the default model like wyoming-openwakeword does.
+            await self._handle_detect(Detect())
 
         for detector in self.detectors.values():
             detector.is_detected = False
@@ -122,6 +158,10 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             detector.last_triggered = None
             for interpreter in detector.interpreters.values():
                 interpreter.reset()
+
+    def _release_detectors(self, detectors: dict[str, Detector]) -> None:
+        for detector in detectors.values():
+            self.manager.release(detector.interpreters, detector.generation)
 
     async def _handle_audio_chunk(self, audio_chunk: AudioChunk) -> None:
         chunk = self.converter.convert(audio_chunk)
@@ -132,9 +172,17 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 (time.monotonic() - detector.last_triggered) < self.refractory_seconds
             )
 
-            score = self._predict_detector(detector, audio)
+            # ONNX inference is blocking (and releases the GIL); run it off
+            # the event loop so other clients keep streaming.
+            score = await asyncio.to_thread(self._predict_detector, detector, audio)
 
-            if skip_detector or score <= self.threshold:
+            if skip_detector:
+                continue
+
+            if score <= self.threshold:
+                # Require trigger_level *consecutive* activations, like
+                # wyoming-openwakeword: a miss resets the streak.
+                detector.triggers_left = self.trigger_level
                 continue
 
             detector.triggers_left -= 1
@@ -144,6 +192,7 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
             detector.is_detected = True
             detector.last_triggered = time.monotonic()
             detector.triggers_left = self.trigger_level
+            self.state.record_detection(detector.id)
             await self.write_event(
                 Detection(name=detector.id, timestamp=self.audio_timestamp).event()
             )
@@ -164,63 +213,59 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
                 for model_name in requested_names
                 if model_name in self.state.models
             ]
-            return sorted(set(model_ids))
+            unknown_names = [
+                model_name
+                for model_name in requested_names
+                if model_name not in self.state.models
+            ]
+            if unknown_names:
+                _LOGGER.warning(
+                    "Unknown wake word names requested: %s (available: %s)",
+                    ", ".join(unknown_names),
+                    ", ".join(sorted(self.state.models)) or "(none)",
+                )
+
+            if model_ids:
+                return sorted(set(model_ids))
+
+            _LOGGER.warning("No requested wake word matched; using default model")
 
         default_model_id = self.state.get_default_model_id()
         return [default_model_id] if default_model_id else []
-
-    def _load_interpreters(self, model_entry: ModelEntry) -> dict[str, Any]:
-        model_ids = (
-            [member.model for member in model_entry.members]
-            if model_entry.is_ensemble
-            else [model_entry.id]
-        )
-
-        interpreters: dict[str, Any] = {}
-        for model_id in model_ids:
-            backing_entry = self.state.backing_models[model_id]
-            if backing_entry.path is None:
-                raise ValueError(f"Model {model_id!r} does not have an ONNX path")
-
-            load_kwargs: dict[str, Any] = {
-                "model": str(backing_entry.path),
-                "cascade": self.cascade,
-                "gate_threshold": self.gate_threshold,
-            }
-            if self.vad_threshold > 0:
-                load_kwargs["vad_threshold"] = self.vad_threshold
-
-            interpreters[model_id] = self.interpreter_factory(**load_kwargs)
-
-        return interpreters
 
     def _predict_detector(self, detector: Detector, audio: np.ndarray) -> float:
         if not detector.entry.is_ensemble:
             model_id = next(iter(detector.interpreters))
             result = detector.interpreters[model_id].predict(audio)
-            return _score_for_detector(result, model_id)
+            score = _score_for_detector(result, model_id)
+            self.state.update_score(detector.id, score)
+            return score
 
         scores: dict[str, float] = {}
         for member in detector.entry.members:
             result = detector.interpreters[member.model].predict(audio)
             scores[member.model] = _score_for_detector(result, member.model)
+            self.state.update_score(member.model, scores[member.model])
 
-        if detector.entry.fusion == "weighted_average":
-            total_weight = sum(
-                max(member.weight, 0.0) for member in detector.entry.members
-            )
+        fused = self._fuse_scores(detector.entry, scores)
+        self.state.update_score(detector.id, fused)
+        return fused
+
+    def _fuse_scores(self, entry: ModelEntry, scores: dict[str, float]) -> float:
+        if entry.fusion == "weighted_average":
+            total_weight = sum(max(member.weight, 0.0) for member in entry.members)
             if total_weight <= 0:
                 return 0.0
 
             return sum(
                 scores[member.model] * max(member.weight, 0.0)
-                for member in detector.entry.members
+                for member in entry.members
             ) / total_weight
 
-        if detector.entry.fusion == "all":
+        if entry.fusion == "all":
             return min(scores.values()) if scores else 0.0
 
-        return self._primary_and_verifier_score(detector.entry, scores)
+        return self._primary_and_verifier_score(entry, scores)
 
     def _primary_and_verifier_score(
         self, model_entry: ModelEntry, scores: dict[str, float]
@@ -241,13 +286,17 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
         ]
 
         primary_score = scores.get(primary.model, 0.0)
-        primary_threshold = primary.threshold or self.threshold
+        primary_threshold = (
+            primary.threshold if primary.threshold is not None else self.threshold
+        )
         if primary_score <= primary_threshold:
             return 0.0
 
         for verifier in verifiers:
             verifier_score = scores.get(verifier.model, 0.0)
-            verifier_threshold = verifier.threshold or self.threshold
+            verifier_threshold = (
+                verifier.threshold if verifier.threshold is not None else self.threshold
+            )
             if verifier_score <= verifier_threshold:
                 return 0.0
 

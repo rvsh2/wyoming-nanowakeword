@@ -1,24 +1,35 @@
 services:
   wyoming-nanowakeword:
     container_name: wyoming-nanowakeword
-    image: ghcr.io/rvsh2/wyoming-nanowakeword:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Local build tag (not the published ghcr image) so `docker compose up`
+    # always uses freshly built code instead of reusing a pulled :latest.
+    image: wyoming-nanowakeword:local
     restart: unless-stopped
     ports:
       - "0.0.0.0:10400:10400"
-    networks:
-      - bridge-network
+      # Model management API: localhost-only by default. To expose it on the
+      # LAN, change to 0.0.0.0 AND set NANOWAKEWORD_HTTP_TOKEN in .env.
+      - "127.0.0.1:10401:10401"
     volumes:
-      - /opt/wyoming-nanowakeword/data:/data
-      - /opt/wyoming-nanowakeword/share:/share
+      # Prepared Agata models (E-Branchformer + alternatives) live in ./data.
+      # Writable so the HTTP model API can upload/restore models.
+      - ./data:/data
     command:
       - wyoming-nanowakeword
       - --uri
       - tcp://0.0.0.0:10400
       - --model-dir
-      - /share/nanowakeword
+      - /data
+      - --default-model
+      - agata
       - --zeroconf
       - nanoWakeWord
-
-networks:
-  bridge-network:
-    external: true
+      - --http-port
+      - "10401"
+      # Empty token means no auth; set NANOWAKEWORD_HTTP_TOKEN in .env before
+      # exposing the API beyond localhost.
+      - --http-token
+      - ${NANOWAKEWORD_HTTP_TOKEN:-}

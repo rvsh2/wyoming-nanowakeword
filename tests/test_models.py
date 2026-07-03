@@ -27,6 +27,73 @@ def test_discover_models_ignores_lite_as_public_model(tmp_path: Path) -> None:
     assert models["hey_home"].gate_path == tmp_path / "hey_home_lite.onnx"
 
 
+def test_gate_must_match_model_version(tmp_path: Path) -> None:
+    (tmp_path / "agata_bcresnet_v4_lite.onnx").touch()
+    (tmp_path / "agata_bcresnet_v5.onnx").touch()
+    (tmp_path / "agata_bcresnet_v5_lite.onnx").touch()
+
+    models = discover_models([tmp_path])
+
+    assert models["agata_bcresnet"].gate_path == (
+        tmp_path / "agata_bcresnet_v5_lite.onnx"
+    )
+
+
+def test_duplicate_model_versions_warn_and_keep_newest(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    (tmp_path / "hey_home.onnx").touch()
+    (tmp_path / "hey_home_v2.onnx").touch()
+    (tmp_path / "hey_home_v10.onnx").touch()  # numeric, not lexicographic order
+    (tmp_path / "hey_home_v10_lite.onnx").touch()
+
+    with caplog.at_level("WARNING"):
+        models = discover_models([tmp_path])
+
+    assert models["hey_home"].path == tmp_path / "hey_home_v10.onnx"
+    assert models["hey_home"].gate_path == tmp_path / "hey_home_v10_lite.onnx"
+    assert any("ignoring" in record.message.lower() for record in caplog.records)
+
+
+def test_unknown_fusion_mode_raises(tmp_path: Path) -> None:
+    (tmp_path / "agata_a.onnx").touch()
+    (tmp_path / "agata_b.onnx").touch()
+    (tmp_path / "models.yaml").write_text(
+        """
+models:
+  agata:
+    fusion: "majority_vote"
+    members:
+      - model: "agata_a"
+      - model: "agata_b"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="unknown fusion"):
+        discover_models([tmp_path])
+
+
+def test_ensemble_id_conflicting_with_model_file_raises(tmp_path: Path) -> None:
+    (tmp_path / "agata.onnx").touch()
+    (tmp_path / "agata_verifier.onnx").touch()
+    (tmp_path / "models.yaml").write_text(
+        """
+models:
+  agata:
+    members:
+      - model: "agata"
+        role: "primary"
+      - model: "agata_verifier"
+        role: "verifier"
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="conflicts with model file"):
+        discover_models([tmp_path])
+
+
 def test_metadata_is_optional_and_descriptive(tmp_path: Path) -> None:
     (tmp_path / "hey_home.onnx").touch()
     (tmp_path / "models.yaml").write_text(
