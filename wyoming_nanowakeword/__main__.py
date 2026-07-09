@@ -98,6 +98,33 @@ async def main() -> None:
         help="Wake word id on the verification server (default: same id)",
     )
     parser.add_argument(
+        "--verify-asr-url",
+        help="whisper.cpp-compatible /inference URL that transcribes "
+        "candidate detections; the wake word must appear in the transcript",
+    )
+    parser.add_argument(
+        "--verify-asr-keyword",
+        help="Comma-separated substrings that count as the wake word in a "
+        "transcript (e.g. 'agat')",
+    )
+    parser.add_argument(
+        "--verify-asr-prompt",
+        help="Optional biasing prompt for the second ASR decode pass "
+        "(e.g. 'Agata? Agatka? Agato?')",
+    )
+    parser.add_argument(
+        "--verify-asr-min-prob",
+        type=float,
+        default=0.68,
+        help="Minimum wake word token probability in the prompted ASR pass "
+        "(default: 0.68)",
+    )
+    parser.add_argument(
+        "--verify-asr-language",
+        default="pl",
+        help="Language passed to the ASR verifier (default: pl)",
+    )
+    parser.add_argument(
         "--capture-dir",
         help="Save a WAV of the audio leading up to each detection here "
         "(training data; disabled unless set)",
@@ -146,6 +173,12 @@ async def main() -> None:
         verify_url=args.verify_url or "",
         verify_token=args.verify_token or "",
         verify_model=args.verify_model or "",
+        verify_asr=bool(args.verify_asr_url),
+        verify_asr_url=args.verify_asr_url or "",
+        verify_asr_keyword=args.verify_asr_keyword or "",
+        verify_asr_prompt=args.verify_asr_prompt or "",
+        verify_asr_min_prob=args.verify_asr_min_prob,
+        verify_asr_language=args.verify_asr_language,
     )
     if model_dirs:
         # Settings changed from Home Assistant win over CLI defaults.

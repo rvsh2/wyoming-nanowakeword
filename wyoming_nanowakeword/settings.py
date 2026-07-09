@@ -40,9 +40,25 @@ class ServerSettings:
     # Verifier round-trip budget; with verify_fail_open this also bounds the
     # extra wake-up latency an unreachable verifier can add.
     verify_timeout: float = 1.0
-    # When the verifier is unreachable: True = accept the detection anyway
-    # (voice control keeps working), False = suppress it.
+    # When a verifier (model or ASR) is unreachable: True = accept the
+    # detection anyway (voice control keeps working), False = suppress it.
     verify_fail_open: bool = True
+    # ASR (whisper) verification: transcribe the candidate audio on a
+    # whisper.cpp-compatible /inference endpoint and require the wake word
+    # in the transcript (see asr_verify.py for the dual-pass rule).
+    verify_asr: bool = False
+    verify_asr_url: str = ""
+    # Comma-separated substrings that count as the wake word in a transcript
+    # (e.g. "agat" matches Agata/Agatka/Agato in any inflection).
+    verify_asr_keyword: str = ""
+    # Optional biasing prompt for the second decode pass; empty = single
+    # unbiased pass only.
+    verify_asr_prompt: str = ""
+    # Minimum mean token probability of the wake word in the prompted pass.
+    verify_asr_min_prob: float = 0.68
+    # Budget for both transcription calls together.
+    verify_asr_timeout: float = 4.0
+    verify_asr_language: str = "pl"
 
     def apply(self, changes: dict[str, object]) -> None:
         """Validate and apply a partial update. Raises ValueError."""

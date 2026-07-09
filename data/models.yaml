@@ -1,33 +1,32 @@
 # Wake word configuration for the Wyoming NanoWakeWord server.
 #
-# Exposes a single, clean wake word "agata" to Home Assistant as a quality-first
-# ENSEMBLE: E-Branchformer (best architecture available here) as the primary
-# detector, confirmed by Conformer (the second-best architecture) as a verifier.
-# A detection fires only when the primary passes its threshold AND the verifier
-# agrees, which suppresses false positives where the two architectures disagree.
+# Exposes a single wake word "agata" backed by the Conformer v2 detector.
+# v2 is a deliberately SENSITIVE model: trained on 7 Piper + 22 ElevenLabs
+# voices (plus the accepted variants "Agatka" and "Agato"), it recognises
+# speakers it has never heard (held-out voices score >=0.999) but on its own
+# it false-triggers on continuous speech. It is designed to run behind ASR
+# verification (--verify-asr-url, see README "ASR verification"): the
+# detector proposes, whisper confirms. Measured end to end on FLEURS pl:
+# 0 false accepts, 38/38 recall on the validated positive set (2026-07-08).
 #
-# Transformer (the README's preferred verifier) is not present in data/, so
-# Conformer is used as the strongest available verifier.
-#
-# Thresholds below are sensible starting points; tune them against your own
-# recordings. Lower them if genuine "Agata" is missed, raise them if you get
-# false triggers.
+# Without ASR verification prefer raising the threshold to ~0.95 and expect
+# reduced recall on unfamiliar voices — or keep the ensemble verified by a
+# central server as before.
 models:
   agata:
     phrase: "Agata"
     language: "pl"
-    architecture: "conformer (verified hybrid)"
+    architecture: "conformer (ASR-verified)"
     fusion: "primary_and_verifier"
-    version: "v1"
+    version: "v2"
+    # Detector operating point measured with the ASR verifier: candidates at
+    # 0.6 for 2 consecutive chunks, whisper makes the final call.
+    threshold: 0.6
+    trigger_level: 2
     members:
-      # Conformer only: on real satellite recordings it scores ~0.99 for
-      # every genuine utterance (even truncated ones) and ~0.003 for noise,
-      # while E-Branchformer kept rejecting genuine wake words (0.30/0.09/
-      # 0.004 on level-shifted or clipped audio). The hybrid still crosses
-      # two independent models: quartznet on the satellite + Conformer here.
       - model: "agata_conformer"
         role: "primary"
-        threshold: 0.90
+        threshold: 0.6
 
   # Hidden backing models (not shown as separate wake words in Home Assistant).
   agata_ebranchformer:
@@ -37,7 +36,7 @@ models:
   agata_conformer:
     hidden: true
     architecture: "conformer"
-    version: "v1"
+    version: "v2"
   agata_quartznet:
     hidden: true
     architecture: "quartznet"

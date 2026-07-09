@@ -25,13 +25,16 @@ handles streaming buffers internally and prepares features every 1280 samples
 Architecture selection happens when the ONNX model is trained and exported.
 At runtime this server loads any compatible NanoWakeWord `.onnx` model:
 `bcresnet`, `transformer`, `conformer`, `dnn`, `lstm`, `gru`, `rnn`, `cnn`,
-`tcn`, `quartznet`, `crnn`, or custom. `bcresnet` is the recommended default
-architecture for new models.
+`tcn`, `quartznet`, `crnn`, or custom.
 
-- best quality candidate: `e_branchformer` (slow)
-- second candidate: `conformer` (slow)
-- safest NanoWakeWord candidate: `transformer` (slow)
-- baseline: `quartznet` or `bcresnet` (fast)
+The bundled `agata` wake word ships a Conformer v2 detector trained on 29
+synthetic voices (7 Piper + 22 ElevenLabs, including the accepted variants
+"Agatka" and "Agato"). It is deliberately tuned for recall — it recognises
+voices it has never heard — and is meant to run behind [ASR
+verification](#asr-verification), which brings false accepts to zero.
+Lesson from evaluating 13 trained models: no single synthetic-data model
+achieved both full recall and zero false accepts; a sensitive detector plus
+a transcription check did.
 
 ## Home Assistant Add-on
 
@@ -222,6 +225,50 @@ Hybrid is optional. Two simpler modes: point wyoming-satellite's
 audio streams over the LAN continuously), or turn the *Server verification*
 switch off (the satellite's model decides alone).
 
+## ASR Verification
+
+A wake word model can be sensitive or precise, but synthetic training data
+alone does not deliver both. ASR verification splits the job: a
+high-recall detector proposes candidates, and a whisper server transcribes
+the buffered audio — the detection is emitted only when the wake word
+literally appears in the transcript.
+
+```bash
+wyoming-nanowakeword ... \
+  --verify-asr-url http://127.0.0.1:4050/inference \
+  --verify-asr-keyword agat \
+  --verify-asr-prompt "Agata? Agatka? Agato?"
+```
+
+Any whisper.cpp-compatible `/inference` endpoint works (e.g. a
+whisper.cpp server container). The check runs in two passes:
+
+1. **Unbiased pass** — the transcript of the candidate audio must contain
+   one of the `--verify-asr-keyword` substrings (comma-separated). An
+   unprompted decode does not hallucinate the wake word into lookalike
+   audio, so this pass eliminates false accepts.
+2. **Prompted pass** (only when `--verify-asr-prompt` is set) — decoding
+   biased toward the wake word must find it with mean token probability
+   ≥ `--verify-asr-min-prob` (default 0.68). This recovers hard genuine
+   pronunciations (diminutives, unusual voices) the unbiased pass alone
+   would occasionally reject at the detector's operating point.
+
+Measured with the bundled Conformer v2 detector (threshold 0.6,
+trigger level 2) on Polish speech benchmarks: **0 false accepts** on
+continuous unseen speech (FLEURS dev; the detector alone produced ~176
+candidates/hour there, the verifier rejected every one, and it also
+rejected all 450 mined false-positive segments from a separate calibration
+set) with **38/38 recall** on a validated positive set that includes four
+voices the detector never trained on. Verification costs two transcription
+calls (~0.5 s total) per candidate — only when the detector fires, so an
+idle room costs nothing.
+
+ASR verification composes with hybrid mode: a satellite can verify against
+the central model first (`--verify-url`) and the central server can gate
+its own detections through whisper (`--verify-asr-url`). Both stages share
+`verify_fail_open`: when a verifier is unreachable, candidates are accepted
+by default so voice control survives ASR downtime.
+
 ## Runtime Settings
 
 Detection behavior is adjustable at runtime through `GET/PATCH /api/settings`
@@ -267,11 +314,12 @@ reload.
 
 The bundled `compose.yml` is ready to run, models included. The Agata `.onnx`
 models ship in `data/`, so a fresh clone works with no extra setup: compose
-builds the image from this repository, bind-mounts `./data` read-only, and
-serves the `agata` wake word by default. `agata` is a quality-first ensemble
-defined in `data/models.yaml`: E-Branchformer (the best architecture available)
-as the primary detector, confirmed by Conformer as a verifier, so a detection
-fires only when both architectures agree:
+builds the image from this repository, bind-mounts `./data`, and serves the
+`agata` wake word by default — the sensitive Conformer v2 detector gated by
+[ASR verification](#asr-verification). The compose file points the verifier
+at a whisper server on the docker host (override with `NANOWAKEWORD_ASR_URL`
+in `.env`, or delete the `--verify-asr-*` flags to run the detector alone
+with a raised threshold):
 
 ```bash
 git clone https://github.com/rvsh2/wyoming-nanowakeword.git

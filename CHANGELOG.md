@@ -1,7 +1,26 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-07-09
 
+- ASR (whisper) verification of candidate detections: `--verify-asr-url`
+  points at a whisper.cpp-compatible `/inference` endpoint and the wake word
+  must literally appear in the transcript before a Wyoming `Detection` is
+  emitted (dual-pass rule: unbiased decode gates false accepts, optional
+  prompted decode recovers hard genuine pronunciations). New settings:
+  `verify_asr`, `verify_asr_url`, `verify_asr_keyword`, `verify_asr_prompt`,
+  `verify_asr_min_prob`, `verify_asr_timeout`, `verify_asr_language`
+- Bundled Agata model replaced with Conformer v2: trained on 29 synthetic
+  voices (7 Piper + 22 ElevenLabs) with "Agatka"/"Agato" as accepted
+  variants; recognises voices it never trained on. Tuned for recall and
+  meant to run behind ASR verification — measured end to end on FLEURS pl:
+  0 false accepts with full recall on a validated positive set
+- `models.yaml`: `agata` now runs the Conformer v2 detector at
+  threshold 0.6 / trigger_level 2 (the operating point measured with the
+  ASR verifier); `compose.yml` wires the verifier by default
+  (`NANOWAKEWORD_ASR_URL`, defaults to a whisper server on the docker host)
+- Hybrid verification now sends the last 2.0 s of buffered audio (was the
+  full buffer): shorter windows scored better on real captures and cut
+  verification latency
 - Lower hybrid-verification latency: `aiohttp` is imported at module load
   instead of on the first candidate detection, and the default
   `verify_timeout` dropped from 3.0 s to 1.0 s so an unreachable verifier

@@ -21,12 +21,19 @@ from wyoming.server import AsyncEventHandler
 from wyoming.wake import Detect, Detection, NotDetected
 
 from . import __version__
+from .asr_verify import verify_wake_word as asr_verify_wake_word
 from .fusion import fuse_scores, score_from_result
 from .interpreters import InterpreterManager
 from .models import ModelEntry
 from .state import State
 
 _LOGGER = logging.getLogger(__name__)
+
+# Seconds of buffered audio sent to the central verifier (see _buffer_as_wav).
+# 1.5 s proved too short on real captures (the verifier's feature warmup can
+# swallow the wake word when local detection fires late); 2.0 s scored 0.98+
+# on every genuine capture while 3 s depressed some to 0.64.
+VERIFY_WINDOW_SECONDS = 2.0
 
 
 @dataclass
@@ -351,18 +358,22 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
     async def _verify_candidate(
         self, detector: Detector, score: float
     ) -> tuple[bool, float | None]:
-        """Ask the configured central verifier to confirm a candidate.
+        """Confirm a candidate with the configured verifier stages.
 
-        Used in the hybrid satellite + server setup: a light model on the
-        satellite triggers cheaply (low threshold), and the buffered audio is
-        confirmed by a stronger model/ensemble on the central server before
-        the Wyoming Detection wakes the Voice Assist pipeline.
+        Stage 1 (hybrid satellite + server): a light model triggers cheaply
+        and the buffered audio is confirmed by a stronger model/ensemble on
+        the central server. Stage 2 (ASR): the audio is transcribed by a
+        whisper server and the wake word must appear in the transcript —
+        this is what turns a sensitive (high-recall) model into a
+        near-zero-false-accept detector. Either stage can run alone.
 
-        Returns (verified, verifier peak score or None).
+        Returns (verified, stage-1 verifier peak score or None).
         """
 
         settings = self.state.settings
-        if not settings.verify or not settings.verify_url:
+        model_verify = settings.verify and settings.verify_url
+        asr_verify = settings.verify_asr and settings.verify_asr_url
+        if not model_verify and not asr_verify:
             return True, None
 
         if not self._capture_buffer:
@@ -373,6 +384,46 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
         if self._verify_session is None:
             self._verify_session = aiohttp.ClientSession()
+
+        if model_verify:
+            verified, remote_peak = await self._verify_candidate_model(
+                detector, score, wav_bytes
+            )
+            if not verified:
+                return False, remote_peak
+        else:
+            remote_peak = None
+
+        if asr_verify:
+            verdict, detail = await asr_verify_wake_word(
+                self._verify_session, settings, wav_bytes
+            )
+            if verdict is None:
+                _LOGGER.warning(
+                    "ASR verifier unreachable (%s); %s candidate %s",
+                    detail,
+                    "accepting" if settings.verify_fail_open else "rejecting",
+                    detector.id,
+                )
+                return settings.verify_fail_open, remote_peak
+            _LOGGER.debug(
+                "ASR verifier %s candidate %s (%s)",
+                "confirmed" if verdict else "rejected",
+                detector.id,
+                detail,
+            )
+            if not verdict:
+                return False, remote_peak
+
+        return True, remote_peak
+
+    async def _verify_candidate_model(
+        self, detector: Detector, score: float, wav_bytes: bytes
+    ) -> tuple[bool, float | None]:
+        """Stage 1: confirm the candidate with a remote wake word model."""
+
+        settings = self.state.settings
+        assert self._verify_session is not None
 
         url = settings.verify_url.rstrip("/")
         if not url.endswith("/api/test"):
@@ -423,6 +474,12 @@ class NanoWakeWordEventHandler(AsyncEventHandler):
 
     def _buffer_as_wav(self) -> bytes:
         samples = np.concatenate(list(self._capture_buffer))
+        # Verify on the buffer tail only: scoring cost is ~linear in duration,
+        # and leading non-wake audio depresses the verifier's score (measured
+        # on real captures: 0.64 with 3 s of context vs 0.99 with 1.5 s).
+        max_samples = int(VERIFY_WINDOW_SECONDS * 16000)
+        if len(samples) > max_samples:
+            samples = samples[-max_samples:]
         buffer = io.BytesIO()
         with wave.open(buffer, "wb") as wav_file:
             wav_file.setnchannels(1)

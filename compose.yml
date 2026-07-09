@@ -14,9 +14,13 @@ services:
       # LAN, change to 0.0.0.0 AND set NANOWAKEWORD_HTTP_TOKEN in .env.
       - "127.0.0.1:10401:10401"
     volumes:
-      # Prepared Agata models (E-Branchformer + alternatives) live in ./data.
+      # Prepared Agata models (Conformer v2 + alternatives) live in ./data.
       # Writable so the HTTP model API can upload/restore models.
       - ./data:/data
+    # Lets the container reach services published on the docker host
+    # (the whisper ASR verifier below).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command:
       - wyoming-nanowakeword
       - --uri
@@ -33,3 +37,13 @@ services:
       # exposing the API beyond localhost.
       - --http-token
       - ${NANOWAKEWORD_HTTP_TOKEN:-}
+      # ASR verification: the sensitive Conformer v2 detector proposes,
+      # whisper confirms (0 false accepts + full recall measured on FLEURS).
+      # Point this at any whisper.cpp-compatible /inference endpoint;
+      # remove the three flags to run the detector alone.
+      - --verify-asr-url
+      - ${NANOWAKEWORD_ASR_URL:-http://host.docker.internal:4050/inference}
+      - --verify-asr-keyword
+      - agat
+      - --verify-asr-prompt
+      - "Agata? Agatka? Agato?"
